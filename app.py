@@ -10,10 +10,26 @@ from generar_matrixify_descuentos import build_discount_workbook
 
 
 SITES = {
-    "Columbia.pe": {"brand": "COLUMBIA", "vendor": "columbiape", "output": "matrixify_columbia_descuentos.xlsx"},
-    "Hush Puppies.pe": {"brand": "HUSH PUPPIES", "vendor": "hushpuppiespe", "output": "matrixify_hushpuppies_descuentos.xlsx"},
-    "Rockford.pe": {"brand": "ROCKFORD", "vendor": "rockfordpe", "output": "matrixify_rockford_descuentos.xlsx"},
-    "Supermall.pe": {"brand": "MULTIMARCA", "vendor": "supermallpe", "output": "matrixify_supermall_descuentos.xlsx"},
+    "Columbia.pe": {
+        "brand": "COLUMBIA",
+        "vendor": "columbiape",
+        "output": "matrixify_columbia_descuentos.xlsx",
+    },
+    "Hush Puppies.pe": {
+        "brand": "HUSH PUPPIES",
+        "vendor": "hushpuppiespe",
+        "output": "matrixify_hushpuppies_descuentos.xlsx",
+    },
+    "Rockford.pe": {
+        "brand": "ROCKFORD",
+        "vendor": "rockfordpe",
+        "output": "matrixify_rockford_descuentos.xlsx",
+    },
+    "Supermall.pe": {
+        "brand": "MULTIMARCA",
+        "vendor": "supermallpe",
+        "output": "matrixify_supermall_descuentos.xlsx",
+    },
 }
 
 
@@ -22,19 +38,65 @@ st.set_page_config(page_title="Matrixify Descuentos", layout="wide")
 st.markdown(
     """
     <style>
-    .stApp { background: #ffffff; color: #001f4f; }
-    [data-testid="stSidebar"] { background: #eef2f7; }
-    .main-block { max-width: 960px; margin: 0 auto; padding-top: 28px; }
-    .brand-logo { font-size: 58px; line-height: 1; font-weight: 800; color: #15329b; letter-spacing: 1px; }
-    .brand-subtitle { color: #15329b; font-size: 15px; font-weight: 700; letter-spacing: 7px; margin-bottom: 64px; }
-    .shopify-badge {
-        height: 84px; width: 84px; border-radius: 12px; background: #95bf47; color: #ffffff;
-        display: flex; align-items: center; justify-content: center; font-size: 48px; font-weight: 800;
-        transform: rotate(4deg); margin-left: auto;
+    .stApp {
+        background: #ffffff;
+        color: #001f4f;
     }
-    .info-box { background: #eef6ff; border: 1px solid #c3ddff; border-radius: 8px; padding: 20px 24px; margin: 34px 0 40px 0; }
-    .section-card { border: 1px solid #d7e1ef; border-radius: 8px; padding: 28px 24px; margin-bottom: 18px; }
-    .upload-card { border: 1px dashed #8ab4ff; border-radius: 8px; padding: 20px 18px; margin-bottom: 16px; }
+    [data-testid="stSidebar"] {
+        background: #eef2f7;
+    }
+    .main-block {
+        max-width: 960px;
+        margin: 0 auto;
+        padding-top: 28px;
+    }
+    .brand-logo {
+        font-size: 58px;
+        line-height: 1;
+        font-weight: 800;
+        color: #15329b;
+        letter-spacing: 1px;
+    }
+    .brand-subtitle {
+        color: #15329b;
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 7px;
+        margin-bottom: 64px;
+    }
+    .shopify-badge {
+        height: 84px;
+        width: 84px;
+        border-radius: 12px;
+        background: #95bf47;
+        color: #ffffff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 48px;
+        font-weight: 800;
+        transform: rotate(4deg);
+        margin-left: auto;
+    }
+    .info-box {
+        background: #eef6ff;
+        border: 1px solid #c3ddff;
+        border-radius: 8px;
+        padding: 20px 24px;
+        margin: 34px 0 40px 0;
+    }
+    .section-card {
+        border: 1px solid #d7e1ef;
+        border-radius: 8px;
+        padding: 28px 24px;
+        margin-bottom: 18px;
+    }
+    .upload-card {
+        border: 1px dashed #8ab4ff;
+        border-radius: 8px;
+        padding: 20px 18px;
+        margin-bottom: 16px;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -67,56 +129,75 @@ with st.sidebar:
     st.write(site["brand"])
     st.caption(f"Vendor: {site['vendor']} | Salida: {site['output']}")
 
+
 st.markdown('<div class="main-block">', unsafe_allow_html=True)
 top_left, top_right = st.columns([3, 1])
 with top_left:
-    st.markdown('<div class="brand-logo">FORUS</div>', unsafe_allow_html=True)
-    st.markdown('<div class="brand-subtitle">CONSUMER FANATIC</div>', unsafe_allow_html=True)
+    st.image("forus_logo.png", width=230)
 with top_right:
-    st.markdown('<div class="shopify-badge">S</div>', unsafe_allow_html=True)
+    st.image("shopify_logo.png", width=90)
 
 st.header(f"Matrixify {site_name} - Shopify")
 st.write(
-    "Sube el Revenue de descuentos y el ultimo catalogo Matrixify del sitio. "
-    "La app genera hojas completas por campana y mantiene limpio el formato de precios."
+    "Sube el input comercial y el ultimo catalogo Matrixify del sitio para conservar IDs y evitar duplicados."
 )
+
 st.markdown(
     """
     <div class="info-box">
       <strong>Flujo obligatorio:</strong><br>
       Elige el sitio destino, sube el Revenue comercial y sube el ultimo catalogo Matrixify del mismo sitio.
-      Cada hoja generada contiene todo el catalogo: los productos sin descuento mantienen precio original y Compare At vacio.
     </div>
     """,
     unsafe_allow_html=True,
 )
 
 st.markdown('<div class="section-card"><h3>Cargar archivos obligatorios</h3></div>', unsafe_allow_html=True)
+
 st.markdown('<div class="upload-card">', unsafe_allow_html=True)
-revenue_file = st.file_uploader("1. Subir input comercial / Revenue", type=["xlsx", "xls"])
+revenue_file = st.file_uploader(
+    "1. Subir input comercial / Revenue",
+    type=["xlsx", "xls"],
+    help="Debe incluir ID PRODUCTO, MODCOL y columnas como DCTO ANT, NUEVO DCTO o DESCUENTO.",
+)
 st.markdown("</div>", unsafe_allow_html=True)
+
 st.markdown('<div class="upload-card">', unsafe_allow_html=True)
-matrixify_file = st.file_uploader(f"2. Subir ultimo catalogo Matrixify de {site_name}", type=["xlsx", "xls"])
+matrixify_file = st.file_uploader(
+    f"2. Subir ultimo catalogo Matrixify de {site_name}",
+    type=["xlsx", "xls"],
+    help="Debe tener las columnas Matrixify de Products, incluyendo ID, Handle, Variant SKU, Variant Price y Compare At Price.",
+)
 st.markdown("</div>", unsafe_allow_html=True)
 
 with st.expander("Regla de calculo"):
     st.write(
-        "El match se hace con `Revenue.ID PRODUCTO` contra `Matrixify.Variant SKU`. "
-        "Si un SKU tiene descuento, la app aplica el descuento a todas las variantes del mismo `ID` de producto."
+        "Primero se busca el SKU del Revenue en `Variant SKU`. Cuando encuentra un SKU con descuento, "
+        "la app aplica ese mismo descuento a todas las variantes del mismo producto Matrixify, usando el `ID` "
+        "del producto como grupo modelo-color. Cada hoja incluye todo el catalogo Matrixify, no solo los SKUs con descuento."
     )
     st.write(
-        "`Variant Price` queda con formato uniforme de 2 decimales. "
-        "`Variant Compare At Price` solo se llena si hay descuento real; si no, queda vacio."
+        "`Variant Price` queda como precio original menos descuento. "
+        "`Variant Compare At Price` solo se llena con el precio original cuando hay descuento real; "
+        "si no hay descuento, queda vacio."
     )
 
-if st.button("Generar Matrixify de descuentos", type="primary", disabled=not matrixify_file or not revenue_file, use_container_width=True):
-    with st.spinner("Procesando archivos..."):
+generate = st.button(
+    "Generar Matrixify de descuentos",
+    type="primary",
+    disabled=not matrixify_file or not revenue_file,
+    use_container_width=True,
+)
+
+if generate:
+    with st.spinner("Procesando archivos y armando hojas por fecha/campana..."):
         try:
             with tempfile.TemporaryDirectory() as temp_dir:
                 workdir = Path(temp_dir)
                 revenue_path = save_upload(revenue_file, workdir)
                 matrixify_path = save_upload(matrixify_file, workdir)
                 output_path = workdir / site["output"]
+
                 build_discount_workbook(matrixify_path, revenue_path, output_path)
                 headers, rows, missing_count = read_summary(output_path)
                 output_bytes = output_path.read_bytes()
@@ -124,8 +205,13 @@ if st.button("Generar Matrixify de descuentos", type="primary", disabled=not mat
             st.success("Archivo generado correctamente.")
             st.subheader("Resumen")
             st.dataframe([dict(zip(headers, row)) for row in rows], hide_index=True, use_container_width=True)
+
             if missing_count:
-                st.warning(f"{missing_count} SKUs del Revenue no se encontraron; el catalogo igual se genero completo.")
+                st.warning(
+                    f"Hay {missing_count} SKUs del Revenue que no se encontraron en Matrixify. "
+                    "Quedaron documentados en la hoja `No encontrados`."
+                )
+
             st.download_button(
                 "Descargar Matrixify generado",
                 data=output_bytes,
