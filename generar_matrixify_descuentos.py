@@ -75,13 +75,6 @@ def format_schedule(value: Any) -> str:
     return "" if value in (None, "") else str(value).strip()
 
 
-def handle_matches_brands(handle: Any, brands: list[str] | None) -> bool:
-    if not brands:
-        return True
-    handle_key = normalize_key(handle)
-    return any(normalize_key(brand) in handle_key for brand in brands)
-
-
 def brand_for_match_key(match_key: str, brand_lookup: dict[str, str] | None) -> str | None:
     if not brand_lookup:
         return None
@@ -102,26 +95,57 @@ def filter_loads_by_brand(
     loads: list[DiscountLoad],
     brand_lookup: dict[str, str] | None,
     selected_brands: list[str] | None,
-) -> list[DiscountLoad]:
+) -> tuple[list[DiscountLoad], list[list[Any]]]:
     if not brand_lookup or not selected_brands:
-        return loads
+        return loads, []
 
     selected = {normalize_key(brand) for brand in selected_brands}
     filtered_loads: list[DiscountLoad] = []
+    not_affected_rows: list[list[Any]] = [["Carga", "Codigo input", "Marca BigQuery", "Motivo"]]
 
     for load in loads:
-        scope_keys = {
-            key for key in load.scope_keys
-            if normalize_key(brand_for_match_key(key, brand_lookup) or "") in selected
-        }
-        discounts = {
-            key: discount for key, discount in load.discounts.items()
-            if normalize_key(brand_for_match_key(key, brand_lookup) or "") in selected
-        }
+        scope_keys: set[str] = set()
+        discounts: dict[str, float] = {}
+
+        for key in load.scope_keys:
+            brand = brand_for_match_key(key, brand_lookup)
+            if normalize_key(brand or "") in selected:
+                scope_keys.add(key)
+            else:
+                not_affected_rows.append(
+                    [load.label, key, brand or "SIN MATCH BIGQUERY", "Marca fuera de la seleccion"]
+                )
+
+        for key, discount in load.discounts.items():
+            brand = brand_for_match_key(key, brand_lookup)
+            if normalize_key(brand or "") in selected:
+                discounts[key] = discount
         filtered_loads.append(
             DiscountLoad(load.label, load.kind, discounts, load.starts_at, load.ends_at, scope_keys)
         )
-    return filtered_loads
+    return filtered_loads, not_affected_rows[1:]
+
+
+def extract_input_lookup_keys(revenue_path: Path) -> tuple[list[str], list[str]]:
+    revenue_wb = load_workbook(revenue_path, data_only=True, read_only=True)
+    revenue_ws = revenue_wb.active
+    discount_loads, _invalid_rows = collect_discount_loads(revenue_ws)
+
+    ids: set[str] = set()
+    modcols: set[str] = set()
+    for load in discount_loads:
+        for key in load.scope_keys:
+            sku = key
+            modcol = None
+            if "|MODCOL:" in key:
+                sku, modcol = key.split("|MODCOL:", 1)
+            if sku:
+                ids.add(str(sku).strip())
+            if modcol:
+                modcols.add(str(modcol).strip())
+
+    revenue_wb.close()
+    return sorted(ids), sorted(modcols)
 
 
 def clean_sheet_name(name: str, used: set[str]) -> str:
@@ -293,11 +317,9 @@ def load_matrixify_index(
     matrix_ws: Worksheet,
     matrix_header_row: int,
     matrix_cols: dict[str, int],
-    brand_filter: list[str] | None = None,
 ):
     sku_col = matrix_cols["Variant SKU"]
     group_col = matrix_cols.get("ID") or matrix_cols.get("Handle") or sku_col
-    handle_col = matrix_cols.get("Handle")
     sku_to_group: dict[str, str] = {}
     group_variant_count: Counter[str] = Counter()
     modcol_to_group: dict[str, str] = {}
@@ -306,8 +328,6 @@ def load_matrixify_index(
     for row in range(matrix_header_row + 1, matrix_ws.max_row + 1):
         sku = matrix_ws.cell(row=row, column=sku_col).value
         handle = matrix_ws.cell(row=row, column=handle_col).value if handle_col else ""
-        if not handle_matches_brands(handle, brand_filter):
-            continue
         group_key = str(matrix_ws.cell(row=row, column=group_col).value or sku or "").strip()
         if not group_key:
             continue
@@ -384,10 +404,10 @@ def analyze_discount_preview(
     revenue_wb = load_workbook(revenue_path, data_only=True, read_only=True)
     revenue_ws = revenue_wb.active
     discount_loads, _invalid_rows = collect_discount_loads(revenue_ws)
-    discount_loads = filter_loads_by_brand(discount_loads, brand_lookup, brand_filter)
+    discount_loads, not_affected_rows = filter_loads_by_brand(discount_loads, brand_lookup, brand_filter)
 
     sku_to_group, group_variant_count, modcol_to_group, handle_to_group, _group_col, _sku_col = load_matrixify_index(
-        matrix_ws, matrix_header_row, matrix_cols, brand_filter
+        matrix_ws, matrix_header_row, matrix_cols
     )
 
     overview_rows: list[dict[str, Any]] = []
@@ -439,7 +459,7 @@ def analyze_discount_preview(
 
     matrix_wb.close()
     revenue_wb.close()
-    return overview_rows, percent_rows, missing_total
+    return overview_rows, percent_rows, missing_total, len(not_affected_rows)
 
 
 def build_discount_workbook(
@@ -456,10 +476,10 @@ def build_discount_workbook(
     revenue_wb = load_workbook(revenue_path, data_only=True)
     revenue_ws = revenue_wb.active
     discount_loads, invalid_rows = collect_discount_loads(revenue_ws)
-    discount_loads = filter_loads_by_brand(discount_loads, brand_lookup, brand_filter)
+    discount_loads, not_affected_rows = filter_loads_by_brand(discount_loads, brand_lookup, brand_filter)
 
     sku_to_group, group_variant_count, modcol_to_group, handle_to_group, group_col, sku_col = load_matrixify_index(
-        matrix_ws, matrix_header_row, matrix_cols, brand_filter
+        matrix_ws, matrix_header_row, matrix_cols
     )
     handle_col = matrix_cols.get("Handle")
 
@@ -509,9 +529,6 @@ def build_discount_workbook(
         out_row = 2
         discounted_output_rows = 0
         for matrix_row in range(matrix_header_row + 1, matrix_ws.max_row + 1):
-            handle = matrix_ws.cell(row=matrix_row, column=handle_col).value if handle_col else ""
-            if not handle_matches_brands(handle, brand_filter):
-                continue
             group_key = str(matrix_ws.cell(row=matrix_row, column=group_col).value or "").strip()
             if not group_key:
                 group_key = str(matrix_ws.cell(row=matrix_row, column=sku_col).value or "").strip()
@@ -584,6 +601,14 @@ def build_discount_workbook(
         invalid_ws = output_wb.create_sheet("Descuentos invalidos")
         for row in invalid_rows:
             invalid_ws.append(row)
+
+    if not_affected_rows:
+        not_affected_ws = output_wb.create_sheet("No afectados por marca")
+        not_affected_ws.append(["Carga", "Codigo input", "Marca BigQuery", "Motivo"])
+        for row in not_affected_rows:
+            not_affected_ws.append(row)
+        not_affected_ws.freeze_panes = "A2"
+        not_affected_ws.auto_filter.ref = not_affected_ws.dimensions
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_wb.save(output_path)
