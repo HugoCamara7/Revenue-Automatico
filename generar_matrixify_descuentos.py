@@ -78,6 +78,9 @@ def format_schedule(value: Any) -> str:
 def brand_for_match_key(match_key: str, brand_lookup: dict[str, str] | None) -> str | None:
     if not brand_lookup:
         return None
+    direct_brand = brand_lookup.get(normalize_key(match_key))
+    if direct_brand:
+        return direct_brand
     sku = match_key
     modcol = None
     if "|MODCOL:" in match_key:
@@ -101,7 +104,7 @@ def filter_loads_by_brand(
 
     selected = {normalize_key(brand) for brand in selected_brands}
     filtered_loads: list[DiscountLoad] = []
-    not_affected_rows: list[list[Any]] = [["Carga", "Codigo input", "Marca BigQuery", "Motivo"]]
+    not_affected_rows: list[list[Any]] = [["Carga", "Codigo input", "Marca input", "Motivo"]]
 
     for load in loads:
         scope_keys: set[str] = set()
@@ -124,6 +127,48 @@ def filter_loads_by_brand(
             DiscountLoad(load.label, load.kind, discounts, load.starts_at, load.ends_at, scope_keys)
         )
     return filtered_loads, not_affected_rows[1:]
+
+
+def find_optional_column(columns: dict[str, int], candidates: list[str]) -> int | None:
+    for candidate in candidates:
+        found = columns.get(normalize(candidate))
+        if found:
+            return found
+    return None
+
+
+def extract_input_brand_lookup(revenue_path: Path) -> dict[str, str]:
+    revenue_wb = load_workbook(revenue_path, data_only=True, read_only=True)
+    revenue_ws = revenue_wb.active
+    try:
+        header_row, columns = find_header_row(revenue_ws, ["ID PRODUCTO"], scan_rows=30)
+        for col in range(1, revenue_ws.max_column + 1):
+            header = normalize(revenue_ws.cell(row=header_row, column=col).value)
+            if header:
+                columns[header] = col
+
+        id_col = columns["ID PRODUCTO"]
+        modcol_col = find_optional_column(columns, ["MODCOL", "COD MOD COL", "COD_MOD_COL", "MODELO COLOR", "MOD-COL"])
+        brand_col = find_optional_column(columns, ["MARCA", "BRAND", "VENDOR"])
+        if not brand_col:
+            return {}
+
+        lookup: dict[str, str] = {}
+        for row in range(header_row + 1, revenue_ws.max_row + 1):
+            sku = revenue_ws.cell(row=row, column=id_col).value
+            brand = revenue_ws.cell(row=row, column=brand_col).value
+            if sku in (None, "") or brand in (None, ""):
+                continue
+            lookup[normalize_key(sku)] = str(brand).strip()
+
+            if modcol_col:
+                modcol = revenue_ws.cell(row=row, column=modcol_col).value
+                if modcol not in (None, ""):
+                    lookup[normalize_key(modcol)] = str(brand).strip()
+                    lookup[normalize_key(f"{sku}|MODCOL:{modcol}")] = str(brand).strip()
+        return lookup
+    finally:
+        revenue_wb.close()
 
 
 def extract_input_lookup_keys(revenue_path: Path) -> tuple[list[str], list[str]]:
@@ -320,6 +365,7 @@ def load_matrixify_index(
 ):
     sku_col = matrix_cols["Variant SKU"]
     group_col = matrix_cols.get("ID") or matrix_cols.get("Handle") or sku_col
+    handle_col = matrix_cols.get("Handle")
     sku_to_group: dict[str, str] = {}
     group_variant_count: Counter[str] = Counter()
     modcol_to_group: dict[str, str] = {}
@@ -396,7 +442,7 @@ def analyze_discount_preview(
     revenue_path: Path,
     brand_filter: list[str] | None = None,
     brand_lookup: dict[str, str] | None = None,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int, int]:
     matrix_wb = load_workbook(matrixify_path, read_only=True)
     matrix_ws = matrix_wb["Products"] if "Products" in matrix_wb.sheetnames else matrix_wb.active
     matrix_header_row, matrix_cols = find_header_row(matrix_ws, MATRIXIFY_REQUIRED_HEADERS)
@@ -604,7 +650,7 @@ def build_discount_workbook(
 
     if not_affected_rows:
         not_affected_ws = output_wb.create_sheet("No afectados por marca")
-        not_affected_ws.append(["Carga", "Codigo input", "Marca BigQuery", "Motivo"])
+        not_affected_ws.append(["Carga", "Codigo input", "Marca input", "Motivo"])
         for row in not_affected_rows:
             not_affected_ws.append(row)
         not_affected_ws.freeze_panes = "A2"
