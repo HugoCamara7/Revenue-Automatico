@@ -84,10 +84,9 @@ Usa el mismo formato de la app Matrixify. En Streamlit, entra a `Manage app > Se
 
 ```toml
 [bigquery]
-enabled = "true"
-project_id = "TU_PROJECT_ID"
-dataset = "TU_DATASET"
-table = "TU_TABLA"
+enabled = true
+project_id = "forus-pe-shared-prod-ti"
+table = "forus-analitica-prod-datalake.bronze.stg_pe_central_arti"
 location = "US"
 
 [gcp_service_account]
@@ -103,7 +102,9 @@ auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
 client_x509_cert_url = "..."
 ```
 
-Tambien puedes usar `query` en vez de `dataset/table`:
+La app detecta automaticamente columnas comunes como `CODINT_MA`, `MARCA_MA` y `COD MOD COL`. Si no existe `COD MOD COL`, intenta armarlo con `CODMOD_MA` + `CODCOL_MA`.
+
+Tambien puedes usar `query` en vez de `table`:
 
 ```toml
 [bigquery]
@@ -113,10 +114,14 @@ query = """
 SELECT
   CODINT_MA,
   `COD MOD COL`,
-  MARCA
+  MARCA_MA
 FROM `proyecto.dataset.tabla`
 """
 location = "US"
+id_column = "CODINT_MA"
+modcol_column = "COD MOD COL"
+brand_column = "MARCA_MA"
+timeout_seconds = "90"
 ```
 
-La consulta debe traer al menos una llave de producto (`CODINT_MA`, `ID_PRODUCTO`, `SKU` o `COD MOD COL`) y una columna de marca (`MARCA` o `brand`).
+La app filtra BigQuery por los IDs/MODCOL del input y por las marcas elegidas en el sidebar. Para que cargue rapido, la consulta debe traer solo estas columnas clave: producto (`CODINT_MA`), modelo-color (`COD MOD COL`) y marca (`MARCA_MA` o la columna real de marca que configures en `brand_column`).
