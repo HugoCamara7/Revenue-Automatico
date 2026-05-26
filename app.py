@@ -1,34 +1,47 @@
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 
 import openpyxl
 import streamlit as st
+from google.cloud import bigquery
+from google.oauth2 import service_account
 
-from generar_matrixify_descuentos import build_discount_workbook
+from generar_matrixify_descuentos import analyze_discount_preview, build_discount_workbook
 
 
 SITES = {
+    "Rockford.pe": {
+        "brand": "COLUMBIA, ROCKFORD, PATAGONIA, SOREL, MOUNTAIN HARDWEAR",
+        "brands": ["COLUMBIA", "ROCKFORD", "PATAGONIA", "SOREL", "MOUNTAIN HARDWEAR"],
+        "vendor": "rockfordpe",
+        "output": "matrixify_revenue_rockford.xlsx",
+    },
     "Columbia.pe": {
         "brand": "COLUMBIA",
+        "brands": ["COLUMBIA"],
         "vendor": "columbiape",
-        "output": "matrixify_columbia_descuentos.xlsx",
+        "output": "matrixify_revenue_columbia.xlsx",
     },
-    "Hush Puppies.pe": {
+    "Hushpuppies.pe": {
         "brand": "HUSH PUPPIES",
+        "brands": ["HUSH PUPPIES"],
         "vendor": "hushpuppiespe",
-        "output": "matrixify_hushpuppies_descuentos.xlsx",
+        "output": "matrixify_revenue_hushpuppies.xlsx",
     },
-    "Rockford.pe": {
-        "brand": "ROCKFORD",
-        "vendor": "rockfordpe",
-        "output": "matrixify_rockford_descuentos.xlsx",
+    "Vans.pe": {
+        "brand": "VANS",
+        "brands": ["VANS"],
+        "vendor": "vanspe",
+        "output": "matrixify_revenue_vans.xlsx",
     },
     "Supermall.pe": {
         "brand": "MULTIMARCA",
+        "brands": ["COLUMBIA", "HUSH PUPPIES", "ROCKFORD", "PATAGONIA", "SOREL", "MOUNTAIN HARDWEAR", "VANS"],
         "vendor": "supermallpe",
-        "output": "matrixify_supermall_descuentos.xlsx",
+        "output": "matrixify_revenue_supermall.xlsx",
     },
 }
 
@@ -122,12 +135,101 @@ def read_summary(output_path: Path) -> tuple[list[str], list[list[object]], int]
     return headers, rows, missing_count
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_brand_lookup_from_bigquery() -> dict[str, str]:
+    config = {}
+    try:
+        if "bigquery" in st.secrets:
+            config.update(dict(st.secrets["bigquery"]))
+        if "gcp_service_account" in st.secrets:
+            config["service_account_info"] = dict(st.secrets["gcp_service_account"])
+    except Exception:
+        return {}
+
+    service_account_json = config.pop("service_account_json", None)
+    if service_account_json and "service_account_info" not in config:
+        config["service_account_info"] = json.loads(service_account_json)
+
+    enabled = str(config.get("enabled", "true")).strip().lower()
+    if enabled in ("0", "false", "no", "off"):
+        return {}
+
+    credentials_info = config.get("service_account_info")
+    credentials = service_account.Credentials.from_service_account_info(dict(credentials_info)) if credentials_info else None
+    project_id = str(config.get("project_id") or (credentials.project_id if credentials else "")).strip()
+    job_project_id = str(config.get("job_project_id") or project_id).strip() or None
+    client = bigquery.Client(project=job_project_id, credentials=credentials)
+
+    query = str(config.get("query", "")).strip()
+    if not query:
+        table = str(config.get("table", "")).strip()
+        dataset = str(config.get("dataset", "")).strip()
+        if not table:
+            return {}
+        table_id = table if table.count(".") == 2 else f"{project_id}.{dataset}.{table}"
+        query = f"SELECT * FROM `{table_id}`"
+
+    rows = client.query(
+        query,
+        job_config=bigquery.QueryJobConfig(use_legacy_sql=False),
+        location=str(config.get("location", "")).strip() or None,
+    ).result()
+
+    lookup: dict[str, str] = {}
+    for row in rows:
+        row_dict = dict(row.items())
+        brand = ""
+        for field in ("MARCA", "marca", "Marca", "brand", "BRAND", "vendor", "VENDOR"):
+            if row_dict.get(field) not in (None, ""):
+                brand = str(row_dict.get(field)).strip()
+                break
+        if not brand:
+            continue
+        for field in (
+            "ID_PRODUCTO",
+            "ID PRODUCTO",
+            "id_producto",
+            "CODINT_MA",
+            "codint_ma",
+            "sku",
+            "SKU",
+            "MODCOL",
+            "modcol",
+            "COD MOD COL",
+            "COD_MOD_COL",
+            "Mod-Col",
+            "codmodcol",
+        ):
+            value = row_dict.get(field)
+            if value not in (None, ""):
+                key = "".join(ch for ch in str(value).upper() if ch.isalnum())
+                lookup[key] = brand
+    return lookup
+
+
 with st.sidebar:
     site_name = st.selectbox("Sitio destino", list(SITES.keys()))
     site = SITES[site_name]
     st.markdown("**Marcas permitidas**")
     st.write(site["brand"])
+    selected_brands = st.multiselect(
+        "Marcas a afectar",
+        site["brands"],
+        default=site["brands"][:1],
+        help="Se filtra con el maestro de BigQuery. Si no hay maestro configurado, se usa solo el alcance del input.",
+    )
     st.caption(f"Vendor: {site['vendor']} | Salida: {site['output']}")
+
+brand_lookup = {}
+try:
+    brand_lookup = load_brand_lookup_from_bigquery()
+except Exception as exc:
+    st.sidebar.warning(f"No se pudo cargar el maestro BigQuery: {exc}")
+
+if brand_lookup:
+    st.sidebar.success(f"Maestro BigQuery cargado: {len(brand_lookup):,} llaves")
+else:
+    st.sidebar.info("Sin maestro BigQuery: se procesara solo el alcance del input.")
 
 
 st.markdown('<div class="main-block">', unsafe_allow_html=True)
@@ -198,11 +300,35 @@ if generate:
                 matrixify_path = save_upload(matrixify_file, workdir)
                 output_path = workdir / site["output"]
 
+                preview_rows, percent_rows, preview_missing = analyze_discount_preview(matrixify_path, revenue_path)
                 build_discount_workbook(matrixify_path, revenue_path, output_path)
                 headers, rows, missing_count = read_summary(output_path)
                 output_bytes = output_path.read_bytes()
 
             st.success("Archivo generado correctamente.")
+            st.subheader("Vista previa comercial")
+
+            if preview_rows:
+                total_products = sum(row["Cod MODCOL / productos afectados"] for row in preview_rows)
+                total_variants = sum(row["Variantes Matrixify afectadas"] for row in preview_rows)
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Cargas detectadas", len(preview_rows))
+                col2.metric("Cod MODCOL / productos afectados", f"{total_products:,}")
+                col3.metric("Variantes afectadas", f"{total_variants:,}")
+
+                st.write("**Resumen por carga**")
+                st.dataframe(preview_rows, hide_index=True, use_container_width=True)
+
+            if percent_rows:
+                st.write("**Distribucion por porcentaje de descuento**")
+                st.dataframe(percent_rows, hide_index=True, use_container_width=True)
+
+            if preview_missing:
+                st.warning(
+                    f"Vista previa: {preview_missing} SKUs del input no hicieron match contra Variant SKU. "
+                    "El archivo igual se genera con el catalogo completo."
+                )
+
             st.subheader("Resumen")
             st.dataframe([dict(zip(headers, row)) for row in rows], hide_index=True, use_container_width=True)
 
