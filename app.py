@@ -6,8 +6,6 @@ from pathlib import Path
 
 import openpyxl
 import streamlit as st
-from google.cloud import bigquery
-from google.oauth2 import service_account
 
 from generar_matrixify_descuentos import analyze_discount_preview, build_discount_workbook, extract_input_lookup_keys
 
@@ -184,8 +182,82 @@ def validate_matrixify_site(matrixify_path: Path, expected_vendor: str) -> tuple
     return True, "No pude validar el sitio porque el Matrixify no trae `Export Summary`."
 
 
+def normalize_column_name(value: str) -> str:
+    return "".join(ch for ch in str(value or "").upper() if ch.isalnum())
+
+
+def find_bigquery_column(available_columns: list[str], candidates: list[str]) -> str:
+    normalized = {normalize_column_name(column): column for column in available_columns}
+    for candidate in candidates:
+        found = normalized.get(normalize_column_name(candidate))
+        if found:
+            return found
+    return ""
+
+
+def bigquery_field_expression(column_name: str) -> str:
+    return f"CAST(`{column_name}` AS STRING)"
+
+
+def resolve_bigquery_columns(client, table_id: str, config: dict) -> tuple[str, str, str, str]:
+    table_schema = client.get_table(table_id).schema
+    available_columns = [field.name for field in table_schema]
+
+    id_column = str(config.get("id_column", "")).strip() or find_bigquery_column(
+        available_columns,
+        ["CODINT_MA", "ID_PRODUCTO", "ID PRODUCTO", "SKU", "Variant SKU", "sku_producto"],
+    )
+    brand_column = str(config.get("brand_column", "")).strip() or find_bigquery_column(
+        available_columns,
+        ["MARCA_MA", "MARCA", "BRAND", "VENDOR"],
+    )
+    modcol_column = str(config.get("modcol_column", "")).strip() or find_bigquery_column(
+        available_columns,
+        ["COD MOD COL", "COD_MOD_COL", "MODCOL", "MOD_COL", "Mod-Col", "codmod_codcol_ma"],
+    )
+
+    if modcol_column:
+        modcol_expression = bigquery_field_expression(modcol_column)
+    else:
+        model_column = str(config.get("model_column", "")).strip() or find_bigquery_column(
+            available_columns,
+            ["CODMOD_MA", "CODMOD", "COD_MODELO", "CODMODELO", "MODELO"],
+        )
+        color_column = str(config.get("color_column", "")).strip() or find_bigquery_column(
+            available_columns,
+            ["CODCOL_MA", "CODCOL", "COD_COLOR", "CODCOLOR", "COLOR"],
+        )
+        if model_column and color_column:
+            modcol_expression = f"CONCAT({bigquery_field_expression(model_column)}, '-', {bigquery_field_expression(color_column)})"
+            modcol_column = "__MODEL_COLOR__"
+        else:
+            modcol_expression = "CAST(NULL AS STRING)"
+
+    missing = []
+    if not id_column:
+        missing.append("ID producto")
+    if not brand_column:
+        missing.append("Marca")
+    if not modcol_column:
+        missing.append("MODCOL o CODMOD_MA + CODCOL_MA")
+    if missing:
+        raise RuntimeError(
+            "No pude detectar columnas necesarias en BigQuery: "
+            f"{', '.join(missing)}. Columnas disponibles: {', '.join(available_columns[:80])}"
+        )
+
+    return id_column, modcol_expression, brand_column, ", ".join([id_column, modcol_column, brand_column])
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_brand_lookup_from_bigquery(ids: tuple[str, ...], modcols: tuple[str, ...]) -> dict[str, str]:
+def load_brand_lookup_from_bigquery(
+    ids: tuple[str, ...],
+    modcols: tuple[str, ...],
+    selected_brands: tuple[str, ...],
+) -> dict[str, str]:
+    from google.cloud import bigquery
+    from google.oauth2 import service_account
+
     config = {}
     try:
         if "bigquery" in st.secrets:
@@ -209,65 +281,71 @@ def load_brand_lookup_from_bigquery(ids: tuple[str, ...], modcols: tuple[str, ..
     job_project_id = str(config.get("job_project_id") or project_id).strip() or None
     client = bigquery.Client(project=job_project_id, credentials=credentials)
 
-    query = str(config.get("query", "")).strip()
+    query = str(config.get("query", "")).strip().rstrip(";")
+    table_id = ""
     if not query:
         table = str(config.get("table", "")).strip()
         dataset = str(config.get("dataset", "")).strip()
         if not table:
             return {}
         table_id = table if table.count(".") == 2 else f"{project_id}.{dataset}.{table}"
-        query = f"SELECT * FROM `{table_id}`"
+        id_column, modcol_expression, brand_column, _detected_columns = resolve_bigquery_columns(client, table_id, config)
+        base_sql = f"`{table_id}`"
+    else:
+        id_column = str(config.get("id_column", "CODINT_MA")).strip()
+        modcol_column = str(config.get("modcol_column", "COD MOD COL")).strip()
+        brand_column = str(config.get("brand_column", "MARCA_MA")).strip()
+        modcol_expression = bigquery_field_expression(modcol_column)
+        base_sql = f"({query})"
 
-    id_column = str(config.get("id_column", "CODINT_MA")).strip()
-    modcol_column = str(config.get("modcol_column", "COD MOD COL")).strip()
+    brand_filter_sql = ""
+    query_parameters = [
+        bigquery.ArrayQueryParameter("ids", "STRING", list(ids)),
+        bigquery.ArrayQueryParameter("modcols", "STRING", list(modcols)),
+    ]
+    if selected_brands:
+        brand_filter_sql = f"AND UPPER(CAST(`{brand_column}` AS STRING)) IN UNNEST(@selected_brands)"
+        query_parameters.append(
+            bigquery.ArrayQueryParameter(
+                "selected_brands",
+                "STRING",
+                [brand.upper() for brand in selected_brands],
+            )
+        )
 
     filtered_query = f"""
-    SELECT *
-    FROM ({query})
+    SELECT
+      CAST(`{id_column}` AS STRING) AS id_value,
+      {modcol_expression} AS modcol_value,
+      CAST(`{brand_column}` AS STRING) AS brand_value
+    FROM {base_sql}
     WHERE
-      CAST(`{id_column}` AS STRING) IN UNNEST(@ids)
-      OR CAST(`{modcol_column}` AS STRING) IN UNNEST(@modcols)
+      (
+        CAST(`{id_column}` AS STRING) IN UNNEST(@ids)
+        OR {modcol_expression} IN UNNEST(@modcols)
+      )
+      {brand_filter_sql}
     """
 
     job_config = bigquery.QueryJobConfig(
         use_legacy_sql=False,
-        query_parameters=[
-            bigquery.ArrayQueryParameter("ids", "STRING", list(ids)),
-            bigquery.ArrayQueryParameter("modcols", "STRING", list(modcols)),
-        ],
+        query_parameters=query_parameters,
     )
 
-    rows = client.query(
+    query_job = client.query(
         filtered_query,
         job_config=job_config,
         location=str(config.get("location", "")).strip() or None,
-    ).result()
+    )
+    rows = query_job.result(timeout=int(config.get("timeout_seconds", 90)))
 
     lookup: dict[str, str] = {}
     for row in rows:
         row_dict = dict(row.items())
-        brand = ""
-        for field in ("MARCA", "marca", "Marca", "brand", "BRAND", "vendor", "VENDOR"):
-            if row_dict.get(field) not in (None, ""):
-                brand = str(row_dict.get(field)).strip()
-                break
+        brand = str(row_dict.get("brand_value") or "").strip()
         if not brand:
             continue
-        for field in (
-            "ID_PRODUCTO",
-            "ID PRODUCTO",
-            "id_producto",
-            "CODINT_MA",
-            "codint_ma",
-            "sku",
-            "SKU",
-            "MODCOL",
-            "modcol",
-            "COD MOD COL",
-            "COD_MOD_COL",
-            "Mod-Col",
-            "codmodcol",
-        ):
+        for field in ("id_value", "modcol_value"):
             value = row_dict.get(field)
             if value not in (None, ""):
                 key = "".join(ch for ch in str(value).upper() if ch.isalnum())
@@ -351,14 +429,16 @@ generate = st.button(
 )
 
 if generate:
-    with st.spinner("Procesando archivos y armando hojas por fecha/campana..."):
+    with st.status("Procesando archivos...", expanded=True) as status:
         try:
             with tempfile.TemporaryDirectory() as temp_dir:
                 workdir = Path(temp_dir)
+                st.write("Guardando archivos cargados...")
                 revenue_path = save_upload(revenue_file, workdir)
                 matrixify_path = save_upload(matrixify_file, workdir)
                 output_path = workdir / site["output"]
 
+                st.write("Validando que el Matrixify corresponda al sitio destino...")
                 matrixify_ok, matrixify_message = validate_matrixify_site(matrixify_path, site["vendor"])
                 if not matrixify_ok:
                     st.error(matrixify_message)
@@ -366,20 +446,28 @@ if generate:
                 if matrixify_message:
                     st.warning(matrixify_message)
 
+                st.write("Leyendo codigos del input comercial...")
                 ids, modcols = extract_input_lookup_keys(revenue_path)
-                brand_lookup = load_brand_lookup_from_bigquery(tuple(ids), tuple(modcols))
+
+                st.write(f"Consultando BigQuery solo por {len(ids):,} IDs y {len(modcols):,} MODCOL...")
+                brand_lookup = load_brand_lookup_from_bigquery(tuple(ids), tuple(modcols), tuple(selected_brands))
                 if selected_brands and not brand_lookup:
                     st.error(
                         "No se pudo obtener marca desde BigQuery para los codigos del input. "
                         "No genero el archivo para evitar tocar productos de otra marca."
                     )
                     st.stop()
+
+                st.write("Calculando vista previa comercial...")
                 preview_rows, percent_rows, preview_missing, not_affected_count = analyze_discount_preview(
                     matrixify_path, revenue_path, selected_brands, brand_lookup
                 )
+
+                st.write("Generando Excel Matrixify...")
                 build_discount_workbook(matrixify_path, revenue_path, output_path, selected_brands, brand_lookup)
                 headers, rows, missing_count = read_summary(output_path)
                 output_bytes = output_path.read_bytes()
+                status.update(label="Archivo generado correctamente.", state="complete")
 
             st.success("Archivo generado correctamente.")
             st.subheader("Vista previa comercial")
