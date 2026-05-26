@@ -4,10 +4,7 @@ import json
 import tempfile
 from pathlib import Path
 
-import openpyxl
 import streamlit as st
-
-from generar_matrixify_descuentos import analyze_discount_preview, build_discount_workbook, extract_input_lookup_keys
 
 
 SITES = {
@@ -121,6 +118,8 @@ def save_upload(uploaded_file, folder: Path) -> Path:
 
 
 def read_summary(output_path: Path) -> tuple[list[str], list[list[object]], int]:
+    import openpyxl
+
     workbook = openpyxl.load_workbook(output_path, data_only=True, read_only=True)
     summary = workbook["Resumen"]
     headers = [summary.cell(row=1, column=col).value for col in range(1, summary.max_column + 1)]
@@ -134,6 +133,8 @@ def read_summary(output_path: Path) -> tuple[list[str], list[list[object]], int]
 
 
 def validate_matrixify_site(matrixify_path: Path, expected_vendor: str) -> tuple[bool, str]:
+    import openpyxl
+
     workbook = openpyxl.load_workbook(matrixify_path, data_only=True, read_only=True)
     try:
         if "Export Summary" in workbook.sheetnames:
@@ -200,6 +201,19 @@ def bigquery_field_expression(column_name: str) -> str:
 
 
 def resolve_bigquery_columns(client, table_id: str, config: dict) -> tuple[str, str, str, str]:
+    id_column_config = str(config.get("id_column", "CODINT_MA")).strip()
+    modcol_column_config = str(config.get("modcol_column", "COD MOD COL")).strip()
+    brand_column_config = str(config.get("brand_column", "MARCA_MA")).strip()
+    auto_detect = str(config.get("auto_detect_columns", "false")).strip().lower() in ("1", "true", "yes", "si")
+
+    if id_column_config and modcol_column_config and brand_column_config and not auto_detect:
+        return (
+            id_column_config,
+            bigquery_field_expression(modcol_column_config),
+            brand_column_config,
+            ", ".join([id_column_config, modcol_column_config, brand_column_config]),
+        )
+
     table_schema = client.get_table(table_id).schema
     available_columns = [field.name for field in table_schema]
 
@@ -431,6 +445,12 @@ generate = st.button(
 if generate:
     with st.status("Procesando archivos...", expanded=True) as status:
         try:
+            from generar_matrixify_descuentos import (
+                analyze_discount_preview,
+                build_discount_workbook,
+                extract_input_lookup_keys,
+            )
+
             with tempfile.TemporaryDirectory() as temp_dir:
                 workdir = Path(temp_dir)
                 st.write("Guardando archivos cargados...")
