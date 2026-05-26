@@ -88,6 +88,11 @@ enabled = true
 project_id = "forus-pe-shared-prod-ti"
 table = "forus-analitica-prod-datalake.bronze.stg_pe_central_arti"
 location = "US"
+id_column = "CODINT_MA"
+modcol_column = "COD MOD COL"
+brand_column = "MARCA_MA"
+lookup_strategy = "brand"
+timeout_seconds = "35"
 
 [gcp_service_account]
 type = "service_account"
@@ -102,7 +107,7 @@ auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
 client_x509_cert_url = "..."
 ```
 
-La app detecta automaticamente columnas comunes como `CODINT_MA`, `MARCA_MA` y `COD MOD COL`. Si no existe `COD MOD COL`, intenta armarlo con `CODMOD_MA` + `CODCOL_MA`.
+La estrategia `lookup_strategy = "brand"` sigue el mismo enfoque del app Matrixify: BigQuery trae las columnas clave filtradas por marca y la app cruza los codigos del input en memoria. Suele ser mas rapido que enviar miles de IDs como parametro.
 
 Tambien puedes usar `query` en vez de `table`:
 
