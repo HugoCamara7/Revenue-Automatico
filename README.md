@@ -59,3 +59,64 @@ En la pantalla cargas:
 - Revenue con descuentos.
 
 Luego presionas `Generar archivo Matrixify` y descargas el Excel final.
+
+## Salidas por sitio
+
+- Rockford.pe: `matrixify_revenue_rockford.xlsx`
+- Columbia.pe: `matrixify_revenue_columbia.xlsx`
+- Hushpuppies.pe: `matrixify_revenue_hushpuppies.xlsx`
+- Vans.pe: `matrixify_revenue_vans.xlsx`
+- Supermall.pe: `matrixify_revenue_supermall.xlsx`
+
+## Vista previa comercial
+
+Antes de descargar el archivo, la app muestra:
+
+- cargas detectadas;
+- cod MODCOL / productos afectados;
+- variantes Matrixify afectadas;
+- resumen por carga;
+- distribucion por porcentaje de descuento.
+
+## Secrets BigQuery
+
+Usa el mismo formato de la app Matrixify. En Streamlit, entra a `Manage app > Settings > Secrets` y pega:
+
+```toml
+[bigquery]
+enabled = "true"
+project_id = "TU_PROJECT_ID"
+dataset = "TU_DATASET"
+table = "TU_TABLA"
+location = "US"
+
+[gcp_service_account]
+type = "service_account"
+project_id = "TU_PROJECT_ID"
+private_key_id = "..."
+private_key = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+client_email = "..."
+client_id = "..."
+auth_uri = "https://accounts.google.com/o/oauth2/auth"
+token_uri = "https://oauth2.googleapis.com/token"
+auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
+client_x509_cert_url = "..."
+```
+
+Tambien puedes usar `query` en vez de `dataset/table`:
+
+```toml
+[bigquery]
+enabled = "true"
+project_id = "TU_PROJECT_ID"
+query = """
+SELECT
+  CODINT_MA,
+  `COD MOD COL`,
+  MARCA
+FROM `proyecto.dataset.tabla`
+"""
+location = "US"
+```
+
+La consulta debe traer al menos una llave de producto (`CODINT_MA`, `ID_PRODUCTO`, `SKU` o `COD MOD COL`) y una columna de marca (`MARCA` o `brand`).
