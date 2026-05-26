@@ -9,7 +9,7 @@ import streamlit as st
 from google.cloud import bigquery
 from google.oauth2 import service_account
 
-from generar_matrixify_descuentos import analyze_discount_preview, build_discount_workbook
+from generar_matrixify_descuentos import analyze_discount_preview, build_discount_workbook, extract_input_lookup_keys
 
 
 SITES = {
@@ -135,8 +135,57 @@ def read_summary(output_path: Path) -> tuple[list[str], list[list[object]], int]
     return headers, rows, missing_count
 
 
+def validate_matrixify_site(matrixify_path: Path, expected_vendor: str) -> tuple[bool, str]:
+    workbook = openpyxl.load_workbook(matrixify_path, data_only=True, read_only=True)
+    try:
+        if "Export Summary" in workbook.sheetnames:
+            summary = workbook["Export Summary"]
+            headers = [summary.cell(row=1, column=col).value for col in range(1, summary.max_column + 1)]
+            header_map = {str(value).strip(): index + 1 for index, value in enumerate(headers) if value}
+            domain_col = header_map.get("Shopify Domain")
+            if domain_col:
+                domain = str(summary.cell(row=2, column=domain_col).value or "").strip().lower()
+                expected = expected_vendor.lower()
+                if domain and expected not in domain:
+                    return (
+                        False,
+                        f"El Matrixify cargado parece ser de `{domain}`, pero elegiste `{expected_vendor}`. "
+                        "Sube el ultimo catalogo Matrixify del mismo sitio destino.",
+                    )
+                return True, ""
+
+        products = workbook["Products"] if "Products" in workbook.sheetnames else workbook.active
+        headers = [products.cell(row=1, column=col).value for col in range(1, products.max_column + 1)]
+        header_map = {str(value).strip(): index + 1 for index, value in enumerate(headers) if value}
+        vendor_col = header_map.get("Vendor")
+        if vendor_col:
+            vendors = set()
+            for row in range(2, min(products.max_row, 500) + 1):
+                vendor = str(products.cell(row=row, column=vendor_col).value or "").strip().lower()
+                if vendor:
+                    vendors.add(vendor)
+            expected = expected_vendor.lower()
+            wrong_vendors = sorted(vendor for vendor in vendors if vendor != expected)
+            if wrong_vendors and expected not in vendors:
+                return (
+                    False,
+                    f"El Matrixify cargado tiene Vendor `{', '.join(wrong_vendors[:5])}`, "
+                    f"pero elegiste `{expected_vendor}`. Sube el catalogo Matrixify correcto del sitio destino.",
+                )
+            if vendors and expected not in vendors:
+                return (
+                    False,
+                    f"No encontre Vendor `{expected_vendor}` en el Matrixify cargado. "
+                    f"Vendors encontrados: `{', '.join(sorted(vendors)[:5])}`.",
+                )
+    finally:
+        workbook.close()
+
+    return True, "No pude validar el sitio porque el Matrixify no trae `Export Summary`."
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_brand_lookup_from_bigquery() -> dict[str, str]:
+def load_brand_lookup_from_bigquery(ids: tuple[str, ...], modcols: tuple[str, ...]) -> dict[str, str]:
     config = {}
     try:
         if "bigquery" in st.secrets:
@@ -169,9 +218,28 @@ def load_brand_lookup_from_bigquery() -> dict[str, str]:
         table_id = table if table.count(".") == 2 else f"{project_id}.{dataset}.{table}"
         query = f"SELECT * FROM `{table_id}`"
 
+    id_column = str(config.get("id_column", "CODINT_MA")).strip()
+    modcol_column = str(config.get("modcol_column", "COD MOD COL")).strip()
+
+    filtered_query = f"""
+    SELECT *
+    FROM ({query})
+    WHERE
+      CAST(`{id_column}` AS STRING) IN UNNEST(@ids)
+      OR CAST(`{modcol_column}` AS STRING) IN UNNEST(@modcols)
+    """
+
+    job_config = bigquery.QueryJobConfig(
+        use_legacy_sql=False,
+        query_parameters=[
+            bigquery.ArrayQueryParameter("ids", "STRING", list(ids)),
+            bigquery.ArrayQueryParameter("modcols", "STRING", list(modcols)),
+        ],
+    )
+
     rows = client.query(
-        query,
-        job_config=bigquery.QueryJobConfig(use_legacy_sql=False),
+        filtered_query,
+        job_config=job_config,
         location=str(config.get("location", "")).strip() or None,
     ).result()
 
@@ -291,8 +359,22 @@ if generate:
                 matrixify_path = save_upload(matrixify_file, workdir)
                 output_path = workdir / site["output"]
 
-                brand_lookup = load_brand_lookup_from_bigquery()
-                preview_rows, percent_rows, preview_missing = analyze_discount_preview(
+                matrixify_ok, matrixify_message = validate_matrixify_site(matrixify_path, site["vendor"])
+                if not matrixify_ok:
+                    st.error(matrixify_message)
+                    st.stop()
+                if matrixify_message:
+                    st.warning(matrixify_message)
+
+                ids, modcols = extract_input_lookup_keys(revenue_path)
+                brand_lookup = load_brand_lookup_from_bigquery(tuple(ids), tuple(modcols))
+                if selected_brands and not brand_lookup:
+                    st.error(
+                        "No se pudo obtener marca desde BigQuery para los codigos del input. "
+                        "No genero el archivo para evitar tocar productos de otra marca."
+                    )
+                    st.stop()
+                preview_rows, percent_rows, preview_missing, not_affected_count = analyze_discount_preview(
                     matrixify_path, revenue_path, selected_brands, brand_lookup
                 )
                 build_discount_workbook(matrixify_path, revenue_path, output_path, selected_brands, brand_lookup)
@@ -321,6 +403,12 @@ if generate:
                 st.warning(
                     f"Vista previa: {preview_missing} SKUs del input no hicieron match contra Variant SKU. "
                     "El archivo igual se genera con el catalogo completo."
+                )
+
+            if not_affected_count:
+                st.warning(
+                    f"{not_affected_count} codigos del input no se afectaron porque BigQuery los identifica "
+                    "con otra marca o sin match. Quedaron en la hoja `No afectados por marca`."
                 )
 
             st.subheader("Resumen")
