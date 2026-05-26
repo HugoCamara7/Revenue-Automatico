@@ -78,55 +78,22 @@ Antes de descargar el archivo, la app muestra:
 - resumen por carga;
 - distribucion por porcentaje de descuento.
 
-## Secrets BigQuery
+## Formato comercial requerido
 
-Usa el mismo formato de la app Matrixify. En Streamlit, entra a `Manage app > Settings > Secrets` y pega:
+Esta version no usa BigQuery. La marca debe venir en el Revenue/input comercial para que la app pueda filtrar de forma segura.
 
-```toml
-[bigquery]
-enabled = true
-project_id = "forus-pe-shared-prod-ti"
-table = "forus-analitica-prod-datalake.bronze.stg_pe_central_arti"
-location = "US"
-id_column = "CODINT_MA"
-modcol_column = "COD MOD COL"
-brand_column = "MARCA_MA"
-lookup_strategy = "brand"
-timeout_seconds = "35"
+Columnas minimas recomendadas:
 
-[gcp_service_account]
-type = "service_account"
-project_id = "TU_PROJECT_ID"
-private_key_id = "..."
-private_key = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-client_email = "..."
-client_id = "..."
-auth_uri = "https://accounts.google.com/o/oauth2/auth"
-token_uri = "https://oauth2.googleapis.com/token"
-auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
-client_x509_cert_url = "..."
+```text
+ID PRODUCTO
+MODCOL
+MARCA
 ```
 
-La estrategia `lookup_strategy = "brand"` sigue el mismo enfoque del app Matrixify: BigQuery trae las columnas clave filtradas por marca y la app cruza los codigos del input en memoria. Suele ser mas rapido que enviar miles de IDs como parametro.
+Despues de esas columnas puedes agregar las campanas/fechas de descuento, por ejemplo:
 
-Tambien puedes usar `query` en vez de `table`:
-
-```toml
-[bigquery]
-enabled = "true"
-project_id = "TU_PROJECT_ID"
-query = """
-SELECT
-  CODINT_MA,
-  `COD MOD COL`,
-  MARCA_MA
-FROM `proyecto.dataset.tabla`
-"""
-location = "US"
-id_column = "CODINT_MA"
-modcol_column = "COD MOD COL"
-brand_column = "MARCA_MA"
-timeout_seconds = "90"
+```text
+ID PRODUCTO | MODCOL | MARCA | RESTO DEL MES | CLB 40 | 06 ABRIL
 ```
 
-La app filtra BigQuery por los IDs/MODCOL del input y por las marcas elegidas en el sidebar. Para que cargue rapido, la consulta debe traer solo estas columnas clave: producto (`CODINT_MA`), modelo-color (`COD MOD COL`) y marca (`MARCA_MA` o la columna real de marca que configures en `brand_column`).
+Si eliges `COLUMBIA` en `Marcas a afectar`, solo se cambian las filas del input donde `MARCA` sea Columbia. Las otras marcas quedan reportadas en la hoja `No afectados por marca`.
