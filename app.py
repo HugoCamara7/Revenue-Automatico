@@ -3,36 +3,34 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
+
+from generar_matrixify_descuentos import build_discount_workbook, read_matrixify, validate_matrixify_vendor
 
 
 SITES = {
     "Rockford.pe": {
-        "brand": "COLUMBIA, ROCKFORD, PATAGONIA, SOREL, MOUNTAIN HARDWEAR",
         "brands": ["COLUMBIA", "ROCKFORD", "PATAGONIA", "SOREL", "MOUNTAIN HARDWEAR"],
         "vendor": "rockfordpe",
         "output": "matrixify_revenue_rockford.xlsx",
     },
     "Columbia.pe": {
-        "brand": "COLUMBIA",
         "brands": ["COLUMBIA"],
         "vendor": "columbiape",
         "output": "matrixify_revenue_columbia.xlsx",
     },
     "Hushpuppies.pe": {
-        "brand": "HUSH PUPPIES",
         "brands": ["HUSH PUPPIES"],
         "vendor": "hushpuppiespe",
         "output": "matrixify_revenue_hushpuppies.xlsx",
     },
     "Vans.pe": {
-        "brand": "VANS",
         "brands": ["VANS"],
         "vendor": "vanspe",
         "output": "matrixify_revenue_vans.xlsx",
     },
     "Supermall.pe": {
-        "brand": "MULTIMARCA",
         "brands": ["COLUMBIA", "HUSH PUPPIES", "ROCKFORD", "PATAGONIA", "SOREL", "MOUNTAIN HARDWEAR", "VANS"],
         "vendor": "supermallpe",
         "output": "matrixify_revenue_supermall.xlsx",
@@ -40,70 +38,21 @@ SITES = {
 }
 
 
-st.set_page_config(page_title="Matrixify Descuentos", layout="wide")
+st.set_page_config(page_title="Matrixify Revenue", layout="wide")
 
 st.markdown(
     """
     <style>
-    .stApp {
-        background: #ffffff;
-        color: #001f4f;
-    }
-    [data-testid="stSidebar"] {
-        background: #eef2f7;
-    }
-    .main-block {
-        max-width: 960px;
-        margin: 0 auto;
-        padding-top: 28px;
-    }
-    .brand-logo {
-        font-size: 58px;
-        line-height: 1;
-        font-weight: 800;
-        color: #15329b;
-        letter-spacing: 1px;
-    }
-    .brand-subtitle {
-        color: #15329b;
-        font-size: 15px;
-        font-weight: 700;
-        letter-spacing: 7px;
-        margin-bottom: 64px;
-    }
-    .shopify-badge {
-        height: 84px;
-        width: 84px;
-        border-radius: 12px;
-        background: #95bf47;
-        color: #ffffff;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 48px;
-        font-weight: 800;
-        transform: rotate(4deg);
-        margin-left: auto;
-    }
-    .info-box {
-        background: #eef6ff;
-        border: 1px solid #c3ddff;
-        border-radius: 8px;
-        padding: 20px 24px;
-        margin: 34px 0 40px 0;
-    }
-    .section-card {
-        border: 1px solid #d7e1ef;
-        border-radius: 8px;
-        padding: 28px 24px;
-        margin-bottom: 18px;
-    }
-    .upload-card {
-        border: 1px dashed #8ab4ff;
-        border-radius: 8px;
-        padding: 20px 18px;
-        margin-bottom: 16px;
-    }
+    .stApp { background: #ffffff; color: #001f4f; }
+    [data-testid="stSidebar"] { background: #eef2f7; }
+    .block-container { max-width: 1120px; padding-top: 42px; }
+    .brand-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:42px; gap:24px; }
+    .hero h1 { color:#001f4f; font-size:32px; margin-bottom:14px; }
+    .hero p { color:#4d6383; }
+    .info-box { border:1px solid #cfe2ff; background:#f2f8ff; border-radius:8px; padding:18px 22px; margin:24px 0 30px; }
+    .section-card { border:1px solid #d9e6f7; border-radius:8px; padding:22px; margin:18px 0; background:white; }
+    div[data-testid="stFileUploader"] { border:1px dashed #9cc3ff; border-radius:8px; padding:16px; background:#fbfdff; }
+    .stButton button, .stDownloadButton button { border-radius:8px; font-weight:700; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -116,238 +65,139 @@ def save_upload(uploaded_file, folder: Path) -> Path:
     return path
 
 
-def read_summary(output_path: Path) -> tuple[list[str], list[list[object]], int]:
-    import openpyxl
-
-    workbook = openpyxl.load_workbook(output_path, data_only=True, read_only=True)
-    summary = workbook["Resumen"]
-    headers = [summary.cell(row=1, column=col).value for col in range(1, summary.max_column + 1)]
-    rows = [
-        [summary.cell(row=row, column=col).value for col in range(1, summary.max_column + 1)]
-        for row in range(2, summary.max_row + 1)
-    ]
-    missing_count = workbook["No encontrados"].max_row - 1 if "No encontrados" in workbook.sheetnames else 0
-    workbook.close()
-    return headers, rows, missing_count
-
-
-def validate_matrixify_site(matrixify_path: Path, expected_vendor: str) -> tuple[bool, str]:
-    import openpyxl
-
-    workbook = openpyxl.load_workbook(matrixify_path, data_only=True, read_only=True)
-    try:
-        if "Export Summary" in workbook.sheetnames:
-            summary = workbook["Export Summary"]
-            headers = [summary.cell(row=1, column=col).value for col in range(1, summary.max_column + 1)]
-            header_map = {str(value).strip(): index + 1 for index, value in enumerate(headers) if value}
-            domain_col = header_map.get("Shopify Domain")
-            if domain_col:
-                domain = str(summary.cell(row=2, column=domain_col).value or "").strip().lower()
-                expected = expected_vendor.lower()
-                if domain and expected not in domain:
-                    return (
-                        False,
-                        f"El Matrixify cargado parece ser de `{domain}`, pero elegiste `{expected_vendor}`. "
-                        "Sube el ultimo catalogo Matrixify del mismo sitio destino.",
-                    )
-                return True, ""
-
-        products = workbook["Products"] if "Products" in workbook.sheetnames else workbook.active
-        headers = [products.cell(row=1, column=col).value for col in range(1, products.max_column + 1)]
-        header_map = {str(value).strip(): index + 1 for index, value in enumerate(headers) if value}
-        vendor_col = header_map.get("Vendor")
-        if vendor_col:
-            vendors = set()
-            for row in range(2, min(products.max_row, 500) + 1):
-                vendor = str(products.cell(row=row, column=vendor_col).value or "").strip().lower()
-                if vendor:
-                    vendors.add(vendor)
-            expected = expected_vendor.lower()
-            wrong_vendors = sorted(vendor for vendor in vendors if vendor != expected)
-            if wrong_vendors and expected not in vendors:
-                return (
-                    False,
-                    f"El Matrixify cargado tiene Vendor `{', '.join(wrong_vendors[:5])}`, "
-                    f"pero elegiste `{expected_vendor}`. Sube el catalogo Matrixify correcto del sitio destino.",
-                )
-            if vendors and expected not in vendors:
-                return (
-                    False,
-                    f"No encontre Vendor `{expected_vendor}` en el Matrixify cargado. "
-                    f"Vendors encontrados: `{', '.join(sorted(vendors)[:5])}`.",
-                )
-    finally:
-        workbook.close()
-
-    return True, "No pude validar el sitio porque el Matrixify no trae `Export Summary`."
-
-
 with st.sidebar:
     site_name = st.selectbox("Sitio destino", list(SITES.keys()))
     site = SITES[site_name]
     st.markdown("**Marcas permitidas**")
-    st.write(site["brand"])
+    st.write(", ".join(site["brands"]))
     selected_brands = st.multiselect(
         "Marcas a afectar",
         site["brands"],
         default=site["brands"][:1],
-        help="La app usa la columna MARCA del Revenue/input para decidir que productos puede modificar.",
+        help="Se usa la columna MARCA del Revenue/input comercial.",
     )
     st.caption(f"Vendor: {site['vendor']} | Salida: {site['output']}")
+    st.info("Version rapida: no usa BigQuery. La marca debe venir en el Revenue.")
 
-st.sidebar.info("Sin BigQuery: la marca se lee desde el Revenue/input comercial.")
 
-
-st.markdown('<div class="main-block">', unsafe_allow_html=True)
-top_left, top_right = st.columns([3, 1])
-with top_left:
-    st.image("forus_logo.png", width=230)
-with top_right:
-    st.image("shopify_logo.png", width=90)
-
-st.header(f"Matrixify {site_name} - Shopify")
-st.write(
-    "Sube el input comercial y el ultimo catalogo Matrixify del sitio para conservar IDs y evitar duplicados."
-)
+st.markdown('<div class="brand-row">', unsafe_allow_html=True)
+left, right = st.columns([3, 1])
+with left:
+    if Path("forus_logo.png").exists():
+        st.image("forus_logo.png", width=230)
+    else:
+        st.markdown("### FORUS")
+with right:
+    if Path("shopify_logo.png").exists():
+        st.image("shopify_logo.png", width=90)
+st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown(
-    """
+    f"""
+    <div class="hero">
+      <h1>Matrixify Revenue {site_name} - Shopify</h1>
+      <p>Sube el Revenue comercial y el ultimo Matrixify del sitio. La app genera una hoja por campana/fecha.</p>
+    </div>
     <div class="info-box">
-      <strong>Flujo obligatorio:</strong><br>
-      Elige el sitio destino, sube el Revenue comercial y sube el ultimo catalogo Matrixify del mismo sitio.
+      <b>Regla principal:</b><br>
+      El Revenue debe traer <code>ID PRODUCTO</code>, <code>MODCOL</code> y <code>MARCA</code>.
+      Solo se modifican las marcas seleccionadas; las demas quedan en la hoja <code>No afectados por marca</code>.
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-st.markdown('<div class="section-card"><h3>Cargar archivos obligatorios</h3></div>', unsafe_allow_html=True)
-
-st.markdown('<div class="upload-card">', unsafe_allow_html=True)
-revenue_file = st.file_uploader(
-    "1. Subir input comercial / Revenue",
-    type=["xlsx", "xls"],
-    help="Debe incluir ID PRODUCTO, MODCOL y columnas como DCTO ANT, NUEVO DCTO o DESCUENTO.",
-)
-st.markdown("</div>", unsafe_allow_html=True)
-
-st.markdown('<div class="upload-card">', unsafe_allow_html=True)
+st.markdown('<div class="section-card"><h3>Cargar archivos obligatorios</h3>', unsafe_allow_html=True)
+revenue_file = st.file_uploader("1. Subir Revenue / input comercial", type=["xlsx"], key="revenue")
 matrixify_file = st.file_uploader(
     f"2. Subir ultimo catalogo Matrixify de {site_name}",
-    type=["xlsx", "xls"],
-    help="Debe tener las columnas Matrixify de Products, incluyendo ID, Handle, Variant SKU, Variant Price y Compare At Price.",
+    type=["xlsx"],
+    key="matrixify",
+    help="Debe corresponder al mismo sitio destino para conservar Product ID y Variant ID.",
 )
 st.markdown("</div>", unsafe_allow_html=True)
 
-with st.expander("Regla de calculo"):
-    st.write(
-        "Primero se busca el SKU del Revenue en `Variant SKU`. Cuando encuentra un SKU con descuento, "
-        "la app aplica ese mismo descuento a todas las variantes del mismo producto Matrixify, usando el `ID` "
-        "del producto como grupo modelo-color. Cada hoja incluye todo el catalogo Matrixify, no solo los SKUs con descuento."
-    )
-    st.write(
-        "`Variant Price` queda como precio original menos descuento. "
-        "`Variant Compare At Price` solo se llena con el precio original cuando hay descuento real; "
-        "si no hay descuento, queda vacio."
+with st.expander("Formato comercial esperado"):
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "ID PRODUCTO": "SKU123",
+                    "MODCOL": "MODELO-COLOR",
+                    "MARCA": selected_brands[0] if selected_brands else "COLUMBIA",
+                    "RESTO DEL MES": "0%",
+                    "CLB 40": "40%",
+                }
+            ]
+        ),
+        hide_index=True,
+        use_container_width=True,
     )
 
 generate = st.button(
-    "Generar Matrixify de descuentos",
+    "Generar Matrixify Revenue",
     type="primary",
-    disabled=not matrixify_file or not revenue_file,
     use_container_width=True,
+    disabled=not revenue_file or not matrixify_file,
 )
 
 if generate:
-    with st.status("Procesando archivos...", expanded=True) as status:
-        try:
-            from generar_matrixify_descuentos import (
-                analyze_discount_preview,
-                build_discount_workbook,
-                extract_input_brand_lookup,
-            )
+    if not selected_brands:
+        st.error("Selecciona al menos una marca a afectar.")
+        st.stop()
 
+    try:
+        with st.status("Procesando archivos...", expanded=True) as status:
             with tempfile.TemporaryDirectory() as temp_dir:
                 workdir = Path(temp_dir)
-                st.write("Guardando archivos cargados...")
                 revenue_path = save_upload(revenue_file, workdir)
                 matrixify_path = save_upload(matrixify_file, workdir)
                 output_path = workdir / site["output"]
 
-                st.write("Validando que el Matrixify corresponda al sitio destino...")
-                matrixify_ok, matrixify_message = validate_matrixify_site(matrixify_path, site["vendor"])
-                if not matrixify_ok:
-                    st.error(matrixify_message)
+                st.write("Validando vendor del Matrixify...")
+                matrixify_df = read_matrixify(matrixify_path)
+                ok, message = validate_matrixify_vendor(matrixify_df, site["vendor"])
+                if not ok:
+                    st.error(message)
                     st.stop()
-                if matrixify_message:
-                    st.warning(matrixify_message)
+                if message:
+                    st.warning(message)
 
-                st.write("Leyendo marcas desde el Revenue/input comercial...")
-                brand_lookup = extract_input_brand_lookup(revenue_path)
-                brand_filter = selected_brands if brand_lookup and selected_brands else None
-                if selected_brands and not brand_lookup:
-                    st.warning(
-                        "No encontre columna MARCA/BRAND/VENDOR en el Revenue. "
-                        "El archivo se generara usando solo el alcance del input, sin filtrar por marca."
-                    )
-
-                st.write("Calculando vista previa comercial...")
-                preview_rows, percent_rows, preview_missing, not_affected_count = analyze_discount_preview(
-                    matrixify_path, revenue_path, brand_filter, brand_lookup
+                st.write("Cruzando Revenue con Matrixify y generando hojas...")
+                result = build_discount_workbook(
+                    matrixify_path=matrixify_path,
+                    revenue_path=revenue_path,
+                    output_path=output_path,
+                    selected_brands=selected_brands,
                 )
-
-                st.write("Generando Excel Matrixify...")
-                build_discount_workbook(matrixify_path, revenue_path, output_path, brand_filter, brand_lookup)
-                headers, rows, missing_count = read_summary(output_path)
                 output_bytes = output_path.read_bytes()
                 status.update(label="Archivo generado correctamente.", state="complete")
 
-            st.success("Archivo generado correctamente.")
-            st.subheader("Vista previa comercial")
+        st.success("Archivo generado correctamente.")
+        st.subheader("Resumen")
+        st.dataframe(result["summary"], hide_index=True, use_container_width=True)
 
-            if preview_rows:
-                total_products = sum(row["Cod MODCOL / productos afectados"] for row in preview_rows)
-                total_variants = sum(row["Variantes Matrixify afectadas"] for row in preview_rows)
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Cargas detectadas", len(preview_rows))
-                col2.metric("Cod MODCOL / productos afectados", f"{total_products:,}")
-                col3.metric("Variantes afectadas", f"{total_variants:,}")
+        if not result["percent"].empty:
+            st.subheader("Distribucion por descuento")
+            st.dataframe(result["percent"], hide_index=True, use_container_width=True)
 
-                st.write("**Resumen por carga**")
-                st.dataframe(preview_rows, hide_index=True, use_container_width=True)
+        if not result["missing"].empty:
+            st.warning(f"{len(result['missing']):,} codigos no se encontraron en Matrixify.")
+            st.dataframe(result["missing"].head(200), hide_index=True, use_container_width=True)
 
-            if percent_rows:
-                st.write("**Distribucion por porcentaje de descuento**")
-                st.dataframe(percent_rows, hide_index=True, use_container_width=True)
+        if not result["not_affected"].empty:
+            st.info(f"{len(result['not_affected']):,} codigos quedaron fuera por marca.")
+            st.dataframe(result["not_affected"].head(200), hide_index=True, use_container_width=True)
 
-            if preview_missing:
-                st.warning(
-                    f"Vista previa: {preview_missing} SKUs del input no hicieron match contra Variant SKU. "
-                    "El archivo igual se genera con el catalogo completo."
-                )
+        st.download_button(
+            "Descargar Matrixify generado",
+            data=output_bytes,
+            file_name=site["output"],
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+    except Exception as exc:
+        st.error(f"No pude generar el archivo: {exc}")
+else:
+    st.info("Carga ambos archivos para comenzar.")
 
-            if not_affected_count:
-                st.warning(
-                    f"{not_affected_count} codigos del input no se afectaron porque el Revenue los marca "
-                    "con otra marca o sin marca. Quedaron en la hoja `No afectados por marca`."
-                )
-
-            st.subheader("Resumen")
-            st.dataframe([dict(zip(headers, row)) for row in rows], hide_index=True, use_container_width=True)
-
-            if missing_count:
-                st.warning(
-                    f"Hay {missing_count} SKUs del Revenue que no se encontraron en Matrixify. "
-                    "Quedaron documentados en la hoja `No encontrados`."
-                )
-
-            st.download_button(
-                "Descargar Matrixify generado",
-                data=output_bytes,
-                file_name=site["output"],
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-            )
-        except Exception as exc:
-            st.error(f"No pude generar el archivo: {exc}")
-
-st.markdown("</div>", unsafe_allow_html=True)
