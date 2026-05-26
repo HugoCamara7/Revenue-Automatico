@@ -220,16 +220,7 @@ with st.sidebar:
     )
     st.caption(f"Vendor: {site['vendor']} | Salida: {site['output']}")
 
-brand_lookup = {}
-try:
-    brand_lookup = load_brand_lookup_from_bigquery()
-except Exception as exc:
-    st.sidebar.warning(f"No se pudo cargar el maestro BigQuery: {exc}")
-
-if brand_lookup:
-    st.sidebar.success(f"Maestro BigQuery cargado: {len(brand_lookup):,} llaves")
-else:
-    st.sidebar.info("Sin maestro BigQuery: se procesara solo el alcance del input.")
+st.sidebar.info("BigQuery se cargara al generar el archivo.")
 
 
 st.markdown('<div class="main-block">', unsafe_allow_html=True)
@@ -300,8 +291,11 @@ if generate:
                 matrixify_path = save_upload(matrixify_file, workdir)
                 output_path = workdir / site["output"]
 
-                preview_rows, percent_rows, preview_missing = analyze_discount_preview(matrixify_path, revenue_path)
-                build_discount_workbook(matrixify_path, revenue_path, output_path)
+                brand_lookup = load_brand_lookup_from_bigquery()
+                preview_rows, percent_rows, preview_missing = analyze_discount_preview(
+                    matrixify_path, revenue_path, selected_brands, brand_lookup
+                )
+                build_discount_workbook(matrixify_path, revenue_path, output_path, selected_brands, brand_lookup)
                 headers, rows, missing_count = read_summary(output_path)
                 output_bytes = output_path.read_bytes()
 
