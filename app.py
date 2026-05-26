@@ -373,7 +373,7 @@ with st.sidebar:
     st.markdown("**Marcas permitidas**")
     st.write(site["brand"])
     selected_brands = st.multiselect(
-        "Marcas a afectar",
+        "Seleccionar Marcas",
         site["brands"],
         default=site["brands"][:1],
         help="Se filtra con el maestro de BigQuery. Si no hay maestro configurado, se usa solo el alcance del input.",
