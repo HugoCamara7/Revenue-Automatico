@@ -312,6 +312,13 @@ def load_brand_lookup_from_bigquery(
         modcol_expression = bigquery_field_expression(modcol_column)
         base_sql = f"({query})"
 
+    lookup_strategy = str(config.get("lookup_strategy", "brand")).strip().lower()
+    wanted_keys = {
+        "".join(ch for ch in str(value).upper() if ch.isalnum())
+        for value in list(ids) + list(modcols)
+        if value not in (None, "")
+    }
+
     brand_filter_sql = ""
     query_parameters = [
         bigquery.ArrayQueryParameter("ids", "STRING", list(ids)),
@@ -327,19 +334,31 @@ def load_brand_lookup_from_bigquery(
             )
         )
 
-    filtered_query = f"""
-    SELECT
-      CAST(`{id_column}` AS STRING) AS id_value,
-      {modcol_expression} AS modcol_value,
-      CAST(`{brand_column}` AS STRING) AS brand_value
-    FROM {base_sql}
-    WHERE
-      (
-        CAST(`{id_column}` AS STRING) IN UNNEST(@ids)
-        OR {modcol_expression} IN UNNEST(@modcols)
-      )
-      {brand_filter_sql}
-    """
+    if lookup_strategy == "brand":
+        filtered_query = f"""
+        SELECT
+          CAST(`{id_column}` AS STRING) AS id_value,
+          {modcol_expression} AS modcol_value,
+          CAST(`{brand_column}` AS STRING) AS brand_value
+        FROM {base_sql}
+        WHERE CAST(`{id_column}` AS STRING) IS NOT NULL
+          {brand_filter_sql}
+        """
+        query_parameters = query_parameters[2:] if selected_brands else []
+    else:
+        filtered_query = f"""
+        SELECT
+          CAST(`{id_column}` AS STRING) AS id_value,
+          {modcol_expression} AS modcol_value,
+          CAST(`{brand_column}` AS STRING) AS brand_value
+        FROM {base_sql}
+        WHERE
+          (
+            CAST(`{id_column}` AS STRING) IN UNNEST(@ids)
+            OR {modcol_expression} IN UNNEST(@modcols)
+          )
+          {brand_filter_sql}
+        """
 
     job_config = bigquery.QueryJobConfig(
         use_legacy_sql=False,
@@ -351,7 +370,7 @@ def load_brand_lookup_from_bigquery(
         job_config=job_config,
         location=str(config.get("location", "")).strip() or None,
     )
-    rows = query_job.result(timeout=int(config.get("timeout_seconds", 90)))
+    rows = query_job.result(timeout=int(config.get("timeout_seconds", 35)))
 
     lookup: dict[str, str] = {}
     for row in rows:
@@ -363,7 +382,8 @@ def load_brand_lookup_from_bigquery(
             value = row_dict.get(field)
             if value not in (None, ""):
                 key = "".join(ch for ch in str(value).upper() if ch.isalnum())
-                lookup[key] = brand
+                if lookup_strategy != "brand" or key in wanted_keys:
+                    lookup[key] = brand
     return lookup
 
 
@@ -373,7 +393,7 @@ with st.sidebar:
     st.markdown("**Marcas permitidas**")
     st.write(site["brand"])
     selected_brands = st.multiselect(
-        "Seleccionar Marcas",
+        "Marcas a afectar",
         site["brands"],
         default=site["brands"][:1],
         help="Se filtra con el maestro de BigQuery. Si no hay maestro configurado, se usa solo el alcance del input.",
@@ -469,7 +489,10 @@ if generate:
                 st.write("Leyendo codigos del input comercial...")
                 ids, modcols = extract_input_lookup_keys(revenue_path)
 
-                st.write(f"Consultando BigQuery solo por {len(ids):,} IDs y {len(modcols):,} MODCOL...")
+                st.write(
+                    f"Consultando BigQuery por marca seleccionada y cruzando {len(ids):,} IDs / "
+                    f"{len(modcols):,} MODCOL en memoria..."
+                )
                 brand_lookup = load_brand_lookup_from_bigquery(tuple(ids), tuple(modcols), tuple(selected_brands))
                 if selected_brands and not brand_lookup:
                     st.error(
