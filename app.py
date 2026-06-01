@@ -61,6 +61,18 @@ st.markdown(
     [data-testid="stSidebar"] {
         background: #eef3fa;
         border-right: 1px solid #dce7f5;
+        min-width: 300px !important;
+        width: 300px !important;
+        transform: translateX(0) !important;
+        visibility: visible !important;
+    }
+    [data-testid="collapsedControl"],
+    [data-testid="stSidebarCollapseButton"],
+    button[title="Close sidebar"],
+    button[title="Open sidebar"] {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
     }
     [data-testid="stSidebar"] > div:first-child { padding: 64px 24px 28px; }
     .block-container {
