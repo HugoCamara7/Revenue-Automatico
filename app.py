@@ -514,9 +514,40 @@ def load_product_lookup_from_bigquery(ids: tuple[str, ...], modcols: tuple[str, 
     job_project_id = str(config.get("job_project_id") or project_id).strip() or None
     client = bigquery.Client(project=job_project_id, credentials=credentials)
 
+    def pick_schema_column(schema_names: list[str], configured: str, candidates: list[str], label: str) -> str:
+        by_normalized = {normalize_key(name): name for name in schema_names}
+        for candidate in [configured, *candidates]:
+            if not candidate:
+                continue
+            found = by_normalized.get(normalize_key(candidate))
+            if found:
+                return found
+        sample = ", ".join(schema_names[:25])
+        raise RuntimeError(f"No encontre la columna {label} en BigQuery. Columnas disponibles: {sample}")
+
     id_column = str(config.get("id_column", "CODINT_MA")).strip()
     modcol_column = str(config.get("modcol_column", "COD MOD COL")).strip()
     brand_column = str(config.get("brand_column", "MARCA_MA")).strip()
+    if table and not query:
+        schema_names = [field.name for field in client.get_table(table).schema]
+        id_column = pick_schema_column(
+            schema_names,
+            id_column,
+            ["CODINT_MA", "ID PRODUCTO", "SKU", "VARIANT SKU", "CODIGO", "CODIGO_SKU"],
+            "SKU / ID PRODUCTO",
+        )
+        modcol_column = pick_schema_column(
+            schema_names,
+            modcol_column,
+            ["COD MOD COL", "COD_MOD_COL", "MODCOL", "MOD-COL", "MOD COL", "MODELO COLOR", "MODELO_COLOR"],
+            "COD MOD COL",
+        )
+        brand_column = pick_schema_column(
+            schema_names,
+            brand_column,
+            ["MARCA_MA", "MARCA", "BRAND", "VENDOR"],
+            "MARCA",
+        )
     base_sql = f"({query})" if query else f"`{table}`"
     sql = f"""
     SELECT
