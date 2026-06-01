@@ -458,19 +458,22 @@ def build_discount_workbook(
                             }
                         )
 
-            out_df = matrixify_df[matrixify_df[group_col].isin(scope_groups)].copy()
-            if out_df.empty:
-                out_df = matrixify_df.head(0).copy()
+            out_df = matrixify_df.copy()
             discount_series = out_df[group_col].map(discounts_by_group).fillna(0)
+            affected_mask = out_df[group_col].isin(scope_groups)
             base_price = out_df["Variant Compare At Price"].map(to_money)
             current_price = out_df["Variant Price"].map(to_money)
             original_price = base_price.where(base_price.notna(), current_price)
 
             new_price = original_price * (1 - discount_series)
-            out_df["Variant Price"] = pd.Series(new_price.round(2).to_numpy(), index=out_df.index, dtype=object)
-            out_df.loc[original_price.isna(), "Variant Price"] = out_df.loc[original_price.isna(), "Variant Price"]
-            out_df["Variant Compare At Price"] = pd.Series([""] * len(out_df), index=out_df.index, dtype=object)
-            discounted_mask = discount_series > 0
+            touched_mask = affected_mask & original_price.notna()
+            out_df.loc[touched_mask, "Variant Price"] = pd.Series(
+                new_price.loc[touched_mask].round(2).to_numpy(),
+                index=out_df.loc[touched_mask].index,
+                dtype=object,
+            )
+            out_df.loc[touched_mask, "Variant Compare At Price"] = ""
+            discounted_mask = affected_mask & (discount_series > 0)
             out_df.loc[discounted_mask, "Variant Compare At Price"] = original_price.loc[discounted_mask].round(2).astype(object)
 
             final_df = out_df[MATRIXIFY_COLUMNS].copy()
@@ -496,7 +499,8 @@ def build_discount_workbook(
                     "Productos / modelo-color con descuento": len(discounts_by_group),
                     "Filas Matrixify generadas": len(final_df),
                     "Filas con descuento": int(discounted_mask.sum()),
-                    "Filas sin descuento": int(len(final_df) - discounted_mask.sum()),
+                    "Filas tocadas sin descuento": int(touched_mask.sum() - discounted_mask.sum()),
+                    "Filas no tocadas": int(len(final_df) - touched_mask.sum()),
                     "Descuentos invalidos": invalid_discount_count,
                     "Inicio": campaign.starts_at,
                     "Fin": campaign.ends_at,
