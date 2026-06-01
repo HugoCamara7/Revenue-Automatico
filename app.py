@@ -539,7 +539,17 @@ def load_product_lookup_from_bigquery(ids: tuple[str, ...], modcols: tuple[str, 
         modcol_column = pick_schema_column(
             schema_names,
             modcol_column,
-            ["COD MOD COL", "COD_MOD_COL", "MODCOL", "MOD-COL", "MOD COL", "MODELO COLOR", "MODELO_COLOR"],
+            [
+                "CODCOL_MA",
+                "CODCOL MA",
+                "COD MOD COL",
+                "COD_MOD_COL",
+                "MODCOL",
+                "MOD-COL",
+                "MOD COL",
+                "MODELO COLOR",
+                "MODELO_COLOR",
+            ],
             "COD MOD COL",
         )
         brand_column = pick_schema_column(
