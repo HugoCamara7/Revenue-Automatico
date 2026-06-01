@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import smtplib
 import tempfile
 from email.message import EmailMessage
@@ -14,34 +15,28 @@ from generar_matrixify_descuentos import (
     extract_revenue_lookup_values,
     normalize_key,
     read_matrixify,
-    validate_matrixify_vendor,
 )
 
 
 SITES = {
     "Rockford.pe": {
         "brands": ["COLUMBIA", "ROCKFORD", "PATAGONIA", "SOREL", "MOUNTAIN HARDWEAR"],
-        "vendor": "rockfordpe",
         "output": "matrixify_revenue_rockford.xlsx",
     },
     "Columbia.pe": {
         "brands": ["COLUMBIA"],
-        "vendor": "columbiape",
         "output": "matrixify_revenue_columbia.xlsx",
     },
     "Hushpuppies.pe": {
         "brands": ["HUSH PUPPIES"],
-        "vendor": "hushpuppiespe",
         "output": "matrixify_revenue_hushpuppies.xlsx",
     },
     "Vans.pe": {
         "brands": ["VANS"],
-        "vendor": "vanspe",
         "output": "matrixify_revenue_vans.xlsx",
     },
     "Supermall.pe": {
         "brands": ["COLUMBIA", "HUSH PUPPIES", "ROCKFORD", "PATAGONIA", "SOREL", "MOUNTAIN HARDWEAR", "VANS"],
-        "vendor": "supermallpe",
         "output": "matrixify_revenue_supermall.xlsx",
     },
 }
@@ -314,6 +309,54 @@ st.markdown(
         padding: 22px;
         margin: 22px 0;
     }
+    .result-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 14px;
+        margin: 24px 0;
+    }
+    .result-card {
+        background: #ffffff;
+        border: 1px solid #d7e4f5;
+        border-radius: 20px;
+        padding: 20px;
+        box-shadow: 0 16px 34px rgba(16, 58, 120, 0.06);
+    }
+    .result-card.good { border-color: #9ee7bf; background: #f1fbf6; }
+    .result-card.warn { border-color: #ffd16a; background: #fffaf0; }
+    .result-card.bad { border-color: #ffb3b3; background: #fff4f4; }
+    .result-label {
+        color: #5f7194;
+        font-size: 12px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: .05em;
+        margin-bottom: 8px;
+    }
+    .result-value {
+        color: #031b4e;
+        font-size: 28px;
+        font-weight: 950;
+        line-height: 1;
+    }
+    .preview-panel {
+        background: #ffffff;
+        border: 1px solid #d7e4f5;
+        border-radius: 22px;
+        padding: 22px;
+        margin: 20px 0;
+    }
+    .preview-title {
+        color: #031b4e;
+        font-weight: 950;
+        font-size: 20px;
+        margin-bottom: 6px;
+    }
+    .preview-sub {
+        color: #5f7194;
+        font-size: 14px;
+        margin-bottom: 16px;
+    }
     div[data-testid="stFileUploader"] {
         border: 1px dashed #9cc3ff;
         border-radius: 18px;
@@ -331,7 +374,7 @@ st.markdown(
         box-shadow: 0 18px 36px rgba(37,42,170,.24);
     }
     @media (max-width: 900px) {
-        .steps-grid, .source-grid { grid-template-columns: 1fr; }
+        .steps-grid, .source-grid, .result-grid { grid-template-columns: 1fr; }
         .top-hero { flex-direction: column; align-items: flex-start; }
     }
     </style>
@@ -344,6 +387,38 @@ def save_upload(uploaded_file, folder: Path) -> Path:
     path = folder / uploaded_file.name
     path.write_bytes(uploaded_file.getbuffer())
     return path
+
+
+def excel_bytes_from_df(df: pd.DataFrame, sheet_name: str = "Hoja1") -> bytes:
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name=sheet_name)
+        ws = writer.book[sheet_name]
+        ws.freeze_panes = "A2"
+        for column_cells in ws.columns:
+            ws.column_dimensions[column_cells[0].column_letter].width = 24
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def build_input_template_bytes() -> bytes:
+    template = pd.DataFrame(
+        [
+            ["Inicio", "2026-06-06 20:00", "2026-06-15 10:00", "2026-06-01 10:00"],
+            ["Fin", "2026-06-07 23:59", "2026-06-30 23:59", "2026-06-30 23:59"],
+            ["Cod Mod Col", "CLB 40", "SALE", "RESTO DEL MES"],
+            ["ABC123-001", "40%", "30%", "0%"],
+        ]
+    )
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        template.to_excel(writer, index=False, header=False, sheet_name="Formato Revenue")
+        ws = writer.book["Formato Revenue"]
+        ws.freeze_panes = "A4"
+        for column_cells in ws.columns:
+            ws.column_dimensions[column_cells[0].column_letter].width = 24
+    buffer.seek(0)
+    return buffer.getvalue()
 
 
 def get_email_config() -> dict[str, str]:
@@ -473,7 +548,7 @@ def render_steps(revenue_loaded: bool, matrixify_loaded: bool, target=st) -> Non
             </div>
             <div class="step-box">
               <div class="step-num">3</div>
-              <div><div class="step-title">Validacion</div><div class="step-sub">Vendor y descuentos</div></div>
+              <div><div class="step-title">Validacion</div><div class="step-sub">Marca y descuentos</div></div>
               <div class="step-badge warn">{validation_badge}</div>
             </div>
             <div class="step-box">
@@ -548,7 +623,14 @@ def load_product_lookup_from_bigquery(ids: tuple[str, ...], modcols: tuple[str, 
             if not model_column or not color_column:
                 sample = ", ".join(schema_names[:25])
                 raise RuntimeError(f"No encontre como armar COD MOD COL en BigQuery. Columnas disponibles: {sample}")
-            modcol_expr = f"CONCAT(CAST(`{model_column}` AS STRING), '-', CAST(`{color_column}` AS STRING))"
+            color_expr = (
+                f"CASE "
+                f"WHEN REGEXP_CONTAINS(CAST(`{color_column}` AS STRING), r'^\\d+$') "
+                f"THEN LPAD(CAST(`{color_column}` AS STRING), 3, '0') "
+                f"ELSE CAST(`{color_column}` AS STRING) "
+                f"END"
+            )
+            modcol_expr = f"CONCAT(CAST(`{model_column}` AS STRING), '-', {color_expr})"
         brand_column = pick_schema_column(
             schema_names,
             brand_column,
@@ -622,13 +704,13 @@ with st.sidebar:
         '<div class="connection-ok">BigQuery obligatorio para COD MOD COL</div>',
         unsafe_allow_html=True,
     )
-    st.caption(f"Vendor: {site['vendor']} | Salida: {site['output']}")
+    st.caption(f"Salida: {site['output']}")
     st.markdown(
         f"""
         <div class="sidebar-status-card">
           <div style="font-weight:900;color:#031b4e;margin-bottom:12px;">Reglas de carga</div>
-          <div class="connection-ok">Conserva IDs del Matrixify subido</div>
-          <div style="color:#6b7894;font-size:13px;">Vendor esperado: {site['vendor']}</div>
+          <div class="connection-ok">BigQuery define la marca a afectar</div>
+          <div style="color:#6b7894;font-size:13px;">Las marcas no seleccionadas se dejan sin cambios.</div>
           <div style="color:#6b7894;font-size:13px;margin-top:12px;">Salida: {site['output']}</div>
         </div>
         """,
@@ -676,15 +758,22 @@ with upload_right:
 
 render_steps(revenue_file is not None, matrixify_file is not None, target=steps_placeholder)
 
-with st.expander("Aviso por correo", expanded=False):
+with st.expander("Aviso al brand manager", expanded=False):
     notify_email = st.text_input(
-        "Enviar Excel generado a",
+        "Enviar faltantes de Matrixify a",
         value="",
         placeholder="correo@empresa.com",
-        help="Opcional. Requiere configurar [email] en Secrets de Streamlit.",
+        help="Opcional. Solo se enviara si hay codigos del input que faltan crear en Matrixify.",
     )
 
 with st.expander("Formato comercial esperado"):
+    st.download_button(
+        "Descargar formato input Revenue",
+        data=build_input_template_bytes(),
+        file_name="formato_input_revenue.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+    )
     st.dataframe(
         pd.DataFrame(
             [
@@ -739,24 +828,17 @@ if generate:
         st.error("BigQuery es obligatorio. Configura [bigquery] en Secrets antes de generar.")
         st.stop()
 
+    brand_counts = {}
     try:
-        with st.status("Procesando archivos...", expanded=True) as status:
+        with st.status("Generando archivo Matrixify...", expanded=False) as status:
             with tempfile.TemporaryDirectory() as temp_dir:
                 workdir = Path(temp_dir)
                 revenue_path = save_upload(revenue_file, workdir)
                 matrixify_path = save_upload(matrixify_file, workdir)
                 output_path = workdir / site["output"]
 
-                st.write("Validando vendor del Matrixify...")
                 matrixify_df = read_matrixify(matrixify_path)
-                ok, message = validate_matrixify_vendor(matrixify_df, site["vendor"])
-                if not ok:
-                    st.error(message)
-                    st.stop()
-                if message:
-                    st.warning(message)
 
-                st.write("Consultando BigQuery para convertir COD MOD COL en SKUs/MARCA...")
                 revenue_ids, revenue_modcols = extract_revenue_lookup_values(revenue_path)
                 if not revenue_modcols:
                     st.error("El Revenue debe traer la columna COD MOD COL. Ya no se procesa solo con SKU.")
@@ -783,9 +865,20 @@ if generate:
                         + ("..." if len(missing_bq_modcols) > 30 else "")
                     )
                     st.stop()
-                st.write(f"BigQuery encontro {found_ids:,} SKUs y {found_modcols:,} COD MOD COL.")
+                brand_counts = {}
+                for info in product_lookup.get("by_modcol", {}).values():
+                    brand = str(info.get("brand") or "SIN MARCA").strip().upper()
+                    brand_counts[brand] = brand_counts.get(brand, 0) + 1
+                selected_norm = {normalize_key(brand) for brand in selected_brands}
+                detected_norm = {normalize_key(brand) for brand in brand_counts}
+                if selected_norm and not selected_norm.intersection(detected_norm):
+                    st.error(
+                        "La marca seleccionada no aparece en los COD MOD COL del input. "
+                        f"Seleccionaste: {', '.join(selected_brands)}. "
+                        f"BigQuery detecto: {', '.join(sorted(brand_counts))}."
+                    )
+                    st.stop()
 
-                st.write("Cruzando Revenue con Matrixify y generando hojas...")
                 result = build_discount_workbook(
                     matrixify_path=matrixify_path,
                     revenue_path=revenue_path,
@@ -794,37 +887,106 @@ if generate:
                     product_lookup=product_lookup,
                 )
                 output_bytes = output_path.read_bytes()
-                if notify_email.strip():
-                    st.write("Enviando correo de aviso...")
-                    send_finish_email(
-                        to_email=notify_email.strip(),
-                        subject=f"Matrixify Revenue generado - {site_name}",
-                        body=(
-                            "Hola,\n\n"
-                            f"El archivo Matrixify Revenue para {site_name} fue generado correctamente.\n"
-                            "Se adjunta el Excel final.\n\n"
-                            "Mensaje automatico de la app Matrixify Revenue."
-                        ),
-                        attachment_name=site["output"],
-                        attachment_bytes=output_bytes,
-                    )
+                if notify_email.strip() and not result["missing"].empty:
+                    missing_email_bytes = excel_bytes_from_df(result["missing"], "Faltan crear")
+                    try:
+                        send_finish_email(
+                            to_email=notify_email.strip(),
+                            subject=f"Codigos faltantes Matrixify - {site_name}",
+                            body=(
+                                "Hola,\n\n"
+                                f"Se encontraron {len(result['missing']):,} codigos del input que no existen en el ultimo Matrixify de {site_name}.\n"
+                                "Se adjunta el detalle para revisar o crear esos productos antes de la carga.\n\n"
+                                "Mensaje automatico de la app Matrixify Revenue."
+                            ),
+                            attachment_name=f"codigos_faltantes_{site_name.lower().replace('.', '_')}.xlsx",
+                            attachment_bytes=missing_email_bytes,
+                        )
+                    except Exception as email_exc:
+                        st.warning(
+                            "El Excel fue generado, pero no se pudo enviar el correo de faltantes: "
+                            f"{email_exc}"
+                        )
                 status.update(label="Archivo generado correctamente.", state="complete")
 
-        st.success("Archivo generado correctamente.")
-        st.subheader("Resumen")
+        total_rows = int(result["summary"]["Filas Matrixify generadas"].sum()) if not result["summary"].empty else 0
+        total_discounted = int(result["summary"]["Filas con descuento"].sum()) if not result["summary"].empty else 0
+        total_missing = len(result["missing"])
+        total_not_affected = len(result["not_affected"])
+        st.markdown(
+            f"""
+            <div class="result-grid">
+              <div class="result-card good">
+                <div class="result-label">Archivo generado</div>
+                <div class="result-value">{total_rows:,}</div>
+                <div class="source-sub">filas Matrixify</div>
+              </div>
+              <div class="result-card">
+                <div class="result-label">Con descuento</div>
+                <div class="result-value">{total_discounted:,}</div>
+                <div class="source-sub">variantes afectadas</div>
+              </div>
+              <div class="result-card {'bad' if total_missing else 'good'}">
+                <div class="result-label">Faltan crear</div>
+                <div class="result-value">{total_missing:,}</div>
+                <div class="source-sub">codigos no encontrados</div>
+              </div>
+              <div class="result-card warn">
+                <div class="result-label">Fuera de marca</div>
+                <div class="result-value">{total_not_affected:,}</div>
+                <div class="source-sub">se dejan sin cambios</div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        if brand_counts:
+            brand_df = pd.DataFrame(
+                [{"Marca BigQuery": brand, "COD MOD COL": count} for brand, count in sorted(brand_counts.items())]
+            )
+            st.markdown(
+                '<div class="preview-panel"><div class="preview-title">Marcas detectadas por BigQuery</div>'
+                '<div class="preview-sub">Sirve para validar si el input corresponde a la marca que elegiste afectar.</div>',
+                unsafe_allow_html=True,
+            )
+            st.dataframe(brand_df, hide_index=True, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown(
+            '<div class="preview-panel"><div class="preview-title">Resumen de hojas a programar</div>'
+            '<div class="preview-sub">Cada fila representa una hoja/campana que saldra en el Excel final.</div>',
+            unsafe_allow_html=True,
+        )
         st.dataframe(result["summary"], hide_index=True, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
         if not result["percent"].empty:
-            st.subheader("Distribucion por descuento")
+            st.markdown(
+                '<div class="preview-panel"><div class="preview-title">Distribucion por descuento</div>'
+                '<div class="preview-sub">Cantidad de modelo-color y variantes afectadas por porcentaje.</div>',
+                unsafe_allow_html=True,
+            )
             st.dataframe(result["percent"], hide_index=True, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
         if not result["missing"].empty:
-            st.warning(f"{len(result['missing']):,} codigos no se encontraron en Matrixify.")
+            st.markdown(
+                '<div class="preview-panel"><div class="preview-title">Codigos que faltan crear en Matrixify</div>'
+                '<div class="preview-sub">Estos COD MOD COL vienen en el input, pero no aparecen en el ultimo Matrixify cargado.</div>',
+                unsafe_allow_html=True,
+            )
             st.dataframe(result["missing"].head(200), hide_index=True, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
         if not result["not_affected"].empty:
-            st.info(f"{len(result['not_affected']):,} codigos quedaron fuera por marca.")
+            st.markdown(
+                '<div class="preview-panel"><div class="preview-title">Codigos fuera de la marca seleccionada</div>'
+                '<div class="preview-sub">BigQuery detecto otra marca; la app no modifica estos productos.</div>',
+                unsafe_allow_html=True,
+            )
             st.dataframe(result["not_affected"].head(200), hide_index=True, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
         st.download_button(
             "Descargar Matrixify generado",
