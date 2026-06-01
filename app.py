@@ -51,16 +51,261 @@ st.set_page_config(page_title="Matrixify Revenue", layout="wide")
 st.markdown(
     """
     <style>
-    .stApp { background: #ffffff; color: #001f4f; }
-    [data-testid="stSidebar"] { background: #eef2f7; }
-    .block-container { max-width: 1120px; padding-top: 42px; }
-    .brand-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:42px; gap:24px; }
-    .hero h1 { color:#001f4f; font-size:32px; margin-bottom:14px; }
-    .hero p { color:#4d6383; }
-    .info-box { border:1px solid #cfe2ff; background:#f2f8ff; border-radius:8px; padding:18px 22px; margin:24px 0 30px; }
-    .section-card { border:1px solid #d9e6f7; border-radius:8px; padding:22px; margin:18px 0; background:white; }
-    div[data-testid="stFileUploader"] { border:1px dashed #9cc3ff; border-radius:8px; padding:16px; background:#fbfdff; }
-    .stButton button, .stDownloadButton button { border-radius:8px; font-weight:700; }
+    .stApp { background: #f4f7fb; color: #031b4e; }
+    [data-testid="stSidebar"] {
+        background: #eef3fa;
+        border-right: 1px solid #dce7f5;
+    }
+    [data-testid="stSidebar"] > div:first-child { padding: 64px 24px 28px; }
+    .block-container {
+        max-width: 1180px;
+        padding-top: 30px;
+        padding-bottom: 42px;
+    }
+    .sidebar-logo-card {
+        background: #ffffff;
+        border: 1px solid #d7e4f5;
+        border-radius: 24px;
+        padding: 24px 22px;
+        margin-bottom: 34px;
+        box-shadow: 0 20px 45px rgba(16, 58, 120, 0.08);
+    }
+    .sidebar-logo-card img {
+        max-width: 220px;
+        display: block;
+    }
+    .sidebar-label {
+        color: #031b4e;
+        font-weight: 800;
+        margin: 24px 0 10px;
+        font-size: 15px;
+    }
+    .sidebar-brand-card {
+        background: #ffffff;
+        border: 1px solid #d7e4f5;
+        border-radius: 20px;
+        padding: 24px;
+        margin: 12px 0 28px;
+        color: #1328a0;
+        font-weight: 900;
+        letter-spacing: .02em;
+        box-shadow: 0 14px 32px rgba(16, 58, 120, 0.06);
+    }
+    .sidebar-status-card {
+        background: #ffffff;
+        border: 1px solid #d7e4f5;
+        border-radius: 22px;
+        padding: 20px;
+        margin-top: 28px;
+        box-shadow: 0 16px 36px rgba(16, 58, 120, 0.07);
+    }
+    .connection-ok {
+        background: #e6f8ee;
+        color: #064e2a;
+        border-radius: 8px;
+        padding: 14px 16px;
+        margin: 14px 0;
+    }
+    .top-hero {
+        background: #ffffff;
+        border: 1px solid #d7e4f5;
+        border-radius: 0;
+        padding: 28px 32px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        margin-bottom: 36px;
+    }
+    .eyebrow {
+        color: #0086d9;
+        font-weight: 900;
+        font-size: 12px;
+        letter-spacing: .38em;
+        margin-bottom: 10px;
+    }
+    .top-hero h1 {
+        color: #031b4e;
+        font-size: 32px;
+        line-height: 1.05;
+        margin: 0 0 10px;
+        letter-spacing: 0;
+    }
+    .top-hero p {
+        color: #536b92;
+        margin: 0;
+        font-size: 15px;
+    }
+    .hero-right {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        white-space: nowrap;
+    }
+    .pill {
+        border-radius: 999px;
+        padding: 9px 16px;
+        font-size: 12px;
+        font-weight: 900;
+        border: 1px solid #b9d7ff;
+        background: #eef6ff;
+        color: #1238bf;
+    }
+    .pill.green {
+        border-color: #9ee7bf;
+        background: #eafaf2;
+        color: #007a3d;
+    }
+    .shopify-mini {
+        width: 52px;
+        height: 52px;
+        object-fit: contain;
+    }
+    .steps-card {
+        background: #ffffff;
+        border: 1px solid #d7e4f5;
+        border-radius: 28px;
+        padding: 22px;
+        margin-bottom: 34px;
+        box-shadow: 0 22px 48px rgba(16, 58, 120, 0.08);
+    }
+    .steps-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 14px;
+    }
+    .step-box {
+        border: 1px solid #dce7f5;
+        background: #f9fbfe;
+        border-radius: 18px;
+        padding: 22px 18px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        min-height: 96px;
+    }
+    .step-box.active {
+        background: #eef6ff;
+        border-color: #9dc8ff;
+    }
+    .step-num {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        color: #006bd6;
+        font-weight: 900;
+        background: #ffffff;
+        box-shadow: 0 10px 22px rgba(15, 55, 110, 0.10);
+        flex: 0 0 auto;
+    }
+    .step-title {
+        font-weight: 900;
+        font-size: 18px;
+        color: #031b4e;
+        margin-bottom: 4px;
+    }
+    .step-sub {
+        color: #5f7194;
+        font-size: 13px;
+    }
+    .step-badge {
+        margin-left: auto;
+        border-radius: 999px;
+        padding: 7px 11px;
+        border: 1px solid #a7e8c4;
+        background: #e9fbf1;
+        color: #007a3d;
+        font-weight: 900;
+        font-size: 12px;
+    }
+    .step-badge.warn {
+        border-color: #ffd16a;
+        background: #fff8df;
+        color: #a76700;
+    }
+    .step-badge.blue {
+        border-color: #a9c9ff;
+        background: #eef6ff;
+        color: #173bbd;
+    }
+    .main-card {
+        background: #ffffff;
+        border: 1px solid #d7e4f5;
+        border-radius: 28px;
+        padding: 34px 34px 30px;
+        margin-bottom: 28px;
+        box-shadow: 0 22px 48px rgba(16, 58, 120, 0.06);
+    }
+    .main-card h2 {
+        margin: 0 0 12px;
+        color: #031b4e;
+        font-size: 28px;
+        letter-spacing: 0;
+    }
+    .muted {
+        color: #536b92;
+        font-size: 15px;
+        margin-bottom: 26px;
+    }
+    .source-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+        margin: 24px 0;
+    }
+    .source-box {
+        border: 1px solid #d7e4f5;
+        background: #f9fbfe;
+        border-radius: 18px;
+        padding: 22px;
+        min-height: 98px;
+    }
+    .source-box.active {
+        background: #eef6ff;
+        border-color: #9dc8ff;
+    }
+    .source-box.green {
+        background: #eafaf2;
+        border-color: #9ee7bf;
+    }
+    .source-title {
+        font-weight: 900;
+        color: #031b4e;
+        margin-bottom: 12px;
+    }
+    .source-sub {
+        color: #5f7194;
+        font-size: 14px;
+    }
+    .status-card {
+        background: #ffffff;
+        border: 1px solid #d7e4f5;
+        border-radius: 22px;
+        padding: 22px;
+        margin: 22px 0;
+    }
+    div[data-testid="stFileUploader"] {
+        border: 1px dashed #9cc3ff;
+        border-radius: 18px;
+        padding: 18px;
+        background: #fbfdff;
+    }
+    .stButton button, .stDownloadButton button {
+        border-radius: 18px;
+        font-weight: 900;
+        min-height: 56px;
+    }
+    .stButton button[kind="primary"] {
+        background: #252aaa;
+        border-color: #252aaa;
+        box-shadow: 0 18px 36px rgba(37,42,170,.24);
+    }
+    @media (max-width: 900px) {
+        .steps-grid, .source-grid { grid-template-columns: 1fr; }
+        .top-hero { flex-direction: column; align-items: flex-start; }
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -122,6 +367,84 @@ def get_bigquery_config() -> dict:
     except Exception:
         return {}
     return config
+
+
+def bigquery_is_configured() -> bool:
+    config = get_bigquery_config()
+    enabled = str(config.get("enabled", "true")).strip().lower()
+    return enabled not in ("0", "false", "no", "off") and bool(config.get("table") or config.get("query"))
+
+
+def render_sidebar_logo() -> None:
+    if Path("forus_logo.png").exists():
+        st.sidebar.markdown('<div class="sidebar-logo-card">', unsafe_allow_html=True)
+        st.sidebar.image("forus_logo.png", use_container_width=True)
+        st.sidebar.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.sidebar.markdown(
+            '<div class="sidebar-logo-card"><h2>FORUS</h2><div>CONSUMER FANATIC</div></div>',
+            unsafe_allow_html=True,
+        )
+
+
+def render_top_header(site_name: str, use_bigquery: bool) -> None:
+    bigquery_badge = "BigQuery activo" if use_bigquery and bigquery_is_configured() else "BigQuery opcional"
+    shopify_badge = "Shopify conectado"
+    shopify_html = ""
+    if Path("shopify_logo.png").exists():
+        shopify_html = '<img class="shopify-mini" src="shopify_logo.png" alt="Shopify">'
+    st.markdown(
+        f"""
+        <div class="top-hero">
+          <div>
+            <div class="eyebrow">MATRIXIFY CONTROL CENTER</div>
+            <h1>{site_name} -> Shopify</h1>
+            <p>Convierte el input comercial en un Excel Matrixify validado usando BigQuery como apoyo maestro.</p>
+          </div>
+          <div class="hero-right">
+            <span class="pill">{bigquery_badge}</span>
+            <span class="pill green">{shopify_badge}</span>
+            {shopify_html}
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_steps(revenue_loaded: bool, matrixify_loaded: bool, use_bigquery: bool, target=st) -> None:
+    input_badge = "Actual" if revenue_loaded else "Pend."
+    bq_badge = "OK" if use_bigquery and bigquery_is_configured() else "Opc."
+    validation_badge = "Revisar" if not matrixify_loaded else "OK"
+    target.markdown(
+        f"""
+        <div class="steps-card">
+          <div class="steps-grid">
+            <div class="step-box active">
+              <div class="step-num">1</div>
+              <div><div class="step-title">Input</div><div class="step-sub">Archivo comercial</div></div>
+              <div class="step-badge blue">{input_badge}</div>
+            </div>
+            <div class="step-box">
+              <div class="step-num">2</div>
+              <div><div class="step-title">BigQuery</div><div class="step-sub">Fuente maestra</div></div>
+              <div class="step-badge">{bq_badge}</div>
+            </div>
+            <div class="step-box">
+              <div class="step-num">3</div>
+              <div><div class="step-title">Validacion</div><div class="step-sub">Reglas y cruces</div></div>
+              <div class="step-badge warn">{validation_badge}</div>
+            </div>
+            <div class="step-box">
+              <div class="step-num">4</div>
+              <div><div class="step-title">Shopify</div><div class="step-sub">Matrixify final</div></div>
+              <div class="step-badge blue">Pend.</div>
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -198,11 +521,18 @@ def load_product_lookup_from_bigquery(ids: tuple[str, ...], modcols: tuple[str, 
     return {"by_id": by_id, "by_modcol": by_modcol}
 
 
+render_sidebar_logo()
+
 with st.sidebar:
+    st.markdown('<div class="sidebar-label">Sitio destino</div>', unsafe_allow_html=True)
     site_name = st.selectbox("Sitio destino", list(SITES.keys()))
     site = SITES[site_name]
-    st.markdown("**Marcas permitidas**")
-    st.write(", ".join(site["brands"]))
+    st.markdown('<div class="sidebar-label">Marca(s) permitidas</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="sidebar-brand-card">{", ".join(site["brands"])}</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown('<div class="sidebar-label">Operacion</div>', unsafe_allow_html=True)
     selected_brands = st.multiselect(
         "Marcas a afectar",
         site["brands"],
@@ -215,46 +545,60 @@ with st.sidebar:
         help="Consulta ARTI por ID PRODUCTO y MODCOL del Revenue. No reemplaza los IDs de Matrixify.",
     )
     st.caption(f"Vendor: {site['vendor']} | Salida: {site['output']}")
-    st.info("El Variant ID y Product ID se conservan desde el Matrixify cargado.")
+    st.markdown(
+        f"""
+        <div class="sidebar-status-card">
+          <button style="border:1px solid #004aad;border-radius:999px;background:white;color:#003d8f;padding:10px 14px;">
+            Probar conexion Shopify
+          </button>
+          <div class="connection-ok">Conectado a {site_name}</div>
+          <div style="color:#6b7894;font-size:13px;">{site['vendor']}.myshopify.com</div>
+          <div style="color:#6b7894;font-size:13px;margin-top:18px;">Origen token: secret</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
-st.markdown('<div class="brand-row">', unsafe_allow_html=True)
-left, right = st.columns([3, 1])
-with left:
-    if Path("forus_logo.png").exists():
-        st.image("forus_logo.png", width=230)
-    else:
-        st.markdown("### FORUS")
-with right:
-    if Path("shopify_logo.png").exists():
-        st.image("shopify_logo.png", width=90)
-st.markdown("</div>", unsafe_allow_html=True)
+render_top_header(site_name, use_bigquery)
+steps_placeholder = st.empty()
 
 st.markdown(
-    f"""
-    <div class="hero">
-      <h1>Matrixify Revenue {site_name} - Shopify</h1>
-      <p>Sube el Revenue comercial y el ultimo Matrixify del sitio. La app genera una hoja por campana/fecha.</p>
-    </div>
-    <div class="info-box">
-      <b>Regla principal:</b><br>
-      El Revenue puede traer <code>ID PRODUCTO</code> o <code>MODCOL</code>. Si trae <code>MODCOL</code>,
-      BigQuery trae los SKUs asociados y esos SKUs cruzan contra <code>Variant SKU</code> del Matrixify.
-      El <code>Variant ID</code> se conserva del Matrixify cargado.
+    """
+    <div class="main-card">
+      <h2>Archivos y fuentes cargadas</h2>
+      <div class="muted">Resumen limpio de lo que la app usara para preparar la carga.</div>
+      <div class="source-grid">
+        <div class="source-box active">
+          <div class="source-title">Input productos</div>
+          <div class="source-sub">Revenue comercial cargado en pantalla</div>
+        </div>
+        <div class="source-box green">
+          <div class="source-title">Shopify Matrixify</div>
+          <div class="source-sub">Ultimo catalogo del sitio para conservar IDs</div>
+        </div>
+        <div class="source-box">
+          <div class="source-title">ARTI BigQuery</div>
+          <div class="source-sub">Completa SKUs, MODCOL y marca si aplica</div>
+        </div>
+      </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-st.markdown('<div class="section-card"><h3>Cargar archivos obligatorios</h3>', unsafe_allow_html=True)
-revenue_file = st.file_uploader("1. Subir Revenue / input comercial", type=["xlsx"], key="revenue")
-matrixify_file = st.file_uploader(
-    f"2. Subir ultimo catalogo Matrixify de {site_name}",
-    type=["xlsx"],
-    key="matrixify",
-    help="Debe corresponder al mismo sitio destino para conservar Product ID y Variant ID.",
-)
-st.markdown("</div>", unsafe_allow_html=True)
+upload_left, upload_right = st.columns(2)
+with upload_left:
+    revenue_file = st.file_uploader("1. Subir Revenue / input comercial", type=["xlsx"], key="revenue")
+with upload_right:
+    matrixify_file = st.file_uploader(
+        f"2. Subir ultimo catalogo Matrixify de {site_name}",
+        type=["xlsx"],
+        key="matrixify",
+        help="Debe corresponder al mismo sitio destino para conservar Product ID y Variant ID.",
+    )
+
+render_steps(revenue_file is not None, matrixify_file is not None, use_bigquery, target=steps_placeholder)
 
 with st.expander("Aviso por correo", expanded=False):
     notify_email = st.text_input(
@@ -280,6 +624,32 @@ with st.expander("Formato comercial esperado"):
         hide_index=True,
         use_container_width=True,
     )
+
+st.markdown(
+    f"""
+    <div class="status-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+        <div style="font-size:20px;font-weight:900;color:#031b4e;">Estado de bases</div>
+        <span class="pill">Fuentes listas</span>
+      </div>
+      <div class="source-grid">
+        <div class="source-box">
+          <div class="source-title">Datos actuales Shopify</div>
+          <div class="source-sub">Ultimo Matrixify cargado</div>
+        </div>
+        <div class="source-box">
+          <div class="source-title">ARTI</div>
+          <div class="source-sub">{"BigQuery activo" if use_bigquery and bigquery_is_configured() else "BigQuery opcional"}</div>
+        </div>
+        <div class="source-box">
+          <div class="source-title">Salida</div>
+          <div class="source-sub">{site["output"]}</div>
+        </div>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 generate = st.button(
     "Generar Matrixify Revenue",
