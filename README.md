@@ -44,7 +44,7 @@ Reglas:
 
 ## Validaciones
 
-- Bloquea Matrixify de otro vendor cuando la columna `Vendor` permite validarlo.
+- Usa BigQuery para detectar la marca real de cada `COD MOD COL` y solo modifica las marcas seleccionadas.
 - Genera hoja `Resumen`.
 - Genera hoja `Descuentos por %`.
 - Genera hoja `No encontrados` con codigos modelo-color unicos cuando algo no existe en Matrixify.
