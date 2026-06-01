@@ -111,6 +111,25 @@ def find_header_row(path: Path, required: list[str], sheet_name: str | int = 0) 
     raise ValueError(f"No encontre encabezados requeridos: {', '.join(required)}")
 
 
+def find_revenue_header_row(path: Path) -> int:
+    preview = pd.read_excel(path, sheet_name=0, header=None, nrows=40, dtype=object)
+    required_any = {
+        "ID PRODUCTO",
+        "SKU",
+        "VARIANT SKU",
+        "MODCOL",
+        "COD MOD COL",
+        "COD_MOD_COL",
+        "MODELO COLOR",
+        "MOD-COL",
+    }
+    for idx, row in preview.iterrows():
+        row_values = {normalize(value) for value in row.tolist() if clean_text(value)}
+        if row_values.intersection(required_any):
+            return int(idx)
+    raise ValueError("No encontre encabezados de Revenue: debe traer ID PRODUCTO o MODCOL.")
+
+
 def first_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
     normalized = {normalize(col): col for col in df.columns}
     for candidate in candidates:
@@ -146,16 +165,86 @@ def validate_matrixify_vendor(matrixify_df: pd.DataFrame, expected_vendor: str) 
     return True, ""
 
 
-def read_revenue(path: Path) -> tuple[pd.DataFrame, list[Campaign], str, str | None, str | None, list[str]]:
-    header_row = find_header_row(path, ["ID PRODUCTO"])
+def extract_revenue_lookup_values(path: Path) -> tuple[list[str], list[str]]:
+    header_row = find_revenue_header_row(path)
+    df = pd.read_excel(path, sheet_name=0, header=header_row, dtype=object, usecols=lambda col: True)
+    id_col = first_column(df, ["ID PRODUCTO", "SKU", "VARIANT SKU"])
+    modcol_col = first_column(df, ["MODCOL", "COD MOD COL", "COD_MOD_COL", "MODELO COLOR", "MOD-COL"])
+    ids = sorted({clean_text(value) for value in df[id_col].dropna().tolist() if clean_text(value)}) if id_col else []
+    modcols = sorted({clean_text(value) for value in df[modcol_col].dropna().tolist() if clean_text(value)}) if modcol_col else []
+    return ids, modcols
+
+
+def extract_revenue_ids(path: Path) -> list[str]:
+    ids, _modcols = extract_revenue_lookup_values(path)
+    return ids
+
+
+def read_revenue(
+    path: Path,
+    product_lookup: dict[str, Any] | None = None,
+) -> tuple[pd.DataFrame, list[Campaign], str, str | None, str | None, list[str]]:
+    header_row = find_revenue_header_row(path)
     raw_top = pd.read_excel(path, sheet_name=0, header=None, nrows=header_row, dtype=object)
     df = pd.read_excel(path, sheet_name=0, header=header_row, dtype=object).dropna(how="all").copy()
 
     id_col = first_column(df, ["ID PRODUCTO", "SKU", "VARIANT SKU"])
-    if not id_col:
-        raise ValueError("El Revenue debe tener columna ID PRODUCTO.")
     modcol_col = first_column(df, ["MODCOL", "COD MOD COL", "COD_MOD_COL", "MODELO COLOR", "MOD-COL"])
+    if not id_col and not modcol_col:
+        raise ValueError("El Revenue debe tener ID PRODUCTO o MODCOL.")
+    if not id_col:
+        df["ID PRODUCTO"] = ""
+        id_col = "ID PRODUCTO"
     brand_col = first_column(df, ["MARCA", "BRAND", "VENDOR"])
+    product_lookup = product_lookup or {}
+    by_id = product_lookup.get("by_id", product_lookup) if isinstance(product_lookup, dict) else {}
+    by_modcol = product_lookup.get("by_modcol", {}) if isinstance(product_lookup, dict) else {}
+
+    if modcol_col and by_modcol:
+        expanded_rows: list[pd.Series] = []
+        for _, row in df.iterrows():
+            current_id = clean_text(row.get(id_col)) if id_col else ""
+            modcol_value = clean_text(row.get(modcol_col))
+            modcol_info = by_modcol.get(normalize_key(modcol_value), {})
+            ids_from_modcol = modcol_info.get("ids", []) if isinstance(modcol_info, dict) else []
+            if current_id or not ids_from_modcol:
+                expanded_rows.append(row)
+                continue
+            for sku in ids_from_modcol:
+                new_row = row.copy()
+                new_row[id_col] = sku
+                expanded_rows.append(new_row)
+        if expanded_rows:
+            df = pd.DataFrame(expanded_rows).reset_index(drop=True)
+
+    if by_id or by_modcol:
+        if not modcol_col:
+            df["MODCOL"] = df[id_col].map(lambda value: by_id.get(normalize_key(value), {}).get("modcol", ""))
+            modcol_col = "MODCOL"
+        else:
+            missing_modcol = df[modcol_col].map(clean_text) == ""
+            df.loc[missing_modcol, modcol_col] = df.loc[missing_modcol, id_col].map(
+                lambda value: by_id.get(normalize_key(value), {}).get("modcol", "")
+            )
+
+        if not brand_col:
+            df["MARCA"] = df[id_col].map(lambda value: by_id.get(normalize_key(value), {}).get("brand", ""))
+            if modcol_col:
+                missing_brand = df["MARCA"].map(clean_text) == ""
+                df.loc[missing_brand, "MARCA"] = df.loc[missing_brand, modcol_col].map(
+                    lambda value: by_modcol.get(normalize_key(value), {}).get("brand", "")
+                )
+            brand_col = "MARCA"
+        else:
+            missing_brand = df[brand_col].map(clean_text) == ""
+            df.loc[missing_brand, brand_col] = df.loc[missing_brand, id_col].map(
+                lambda value: by_id.get(normalize_key(value), {}).get("brand", "")
+            )
+            if modcol_col:
+                missing_brand = df[brand_col].map(clean_text) == ""
+                df.loc[missing_brand, brand_col] = df.loc[missing_brand, modcol_col].map(
+                    lambda value: by_modcol.get(normalize_key(value), {}).get("brand", "")
+                )
 
     ignored = {
         "ID PRODUCTO",
@@ -218,6 +307,20 @@ def build_match_key(row: pd.Series, id_col: str, modcol_col: str | None) -> str:
     return sku
 
 
+def split_match_key(match_key: str) -> tuple[str, str]:
+    if "|MODCOL:" in match_key:
+        sku, modcol = match_key.split("|MODCOL:", 1)
+        return sku, modcol
+    return match_key, ""
+
+
+def preferred_missing_code(match_key: str) -> tuple[str, str, str]:
+    sku, modcol = split_match_key(match_key)
+    if modcol:
+        return normalize_key(modcol), "MODCOL", modcol
+    return normalize_key(sku), "SKU", sku
+
+
 def build_matrixify_index(matrixify_df: pd.DataFrame) -> tuple[dict[str, str], dict[str, int], dict[str, str], str]:
     group_col = "ID" if "ID" in matrixify_df.columns else "Handle"
     working = matrixify_df.copy()
@@ -263,9 +366,10 @@ def build_discount_workbook(
     revenue_path: Path,
     output_path: Path,
     selected_brands: list[str] | None = None,
+    product_lookup: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, pd.DataFrame]:
     matrixify_df = read_matrixify(matrixify_path)
-    revenue_df, campaigns, id_col, modcol_col, brand_col, invalid_columns = read_revenue(revenue_path)
+    revenue_df, campaigns, id_col, modcol_col, brand_col, invalid_columns = read_revenue(revenue_path, product_lookup)
 
     selected_norm = {normalize(brand) for brand in selected_brands or []}
     not_affected_rows: list[dict[str, Any]] = []
@@ -292,15 +396,27 @@ def build_discount_workbook(
         if clean_text(row.get(id_col))
     ]
     scope_groups = {group for key in scope_keys if (group := resolve_group(key, sku_to_group, modcol_to_group))}
-    missing_scope = [
-        {"Carga": "Alcance input", "Codigo input": key, "Descuento": "", "Motivo": "No existe en Matrixify"}
-        for key in scope_keys
-        if not resolve_group(key, sku_to_group, modcol_to_group)
-    ]
+    missing_records: dict[tuple[str, str], dict[str, Any]] = {}
+    for key in scope_keys:
+        if resolve_group(key, sku_to_group, modcol_to_group):
+            continue
+        unique_key, code_type, code_value = preferred_missing_code(key)
+        missing_records.setdefault(
+            (code_type, unique_key),
+            {
+                "Carga": "Alcance input",
+                "Tipo codigo": code_type,
+                "Codigo no encontrado": code_value,
+                "SKUs input asociados": 0,
+                "Descuento": "",
+                "Motivo": "No existe en Matrixify",
+            },
+        )
+        missing_records[(code_type, unique_key)]["SKUs input asociados"] += 1
 
     summary_rows: list[dict[str, Any]] = []
     percent_rows: list[dict[str, Any]] = []
-    missing_rows: list[dict[str, Any]] = missing_scope.copy()
+    missing_rows: list[dict[str, Any]] = list(missing_records.values())
     used_sheets: set[str] = set()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -322,14 +438,32 @@ def build_discount_workbook(
                 if group:
                     discounts_by_group[group] = max(discounts_by_group.get(group, 0), discount)
                 else:
-                    missing_rows.append(
-                        {
-                            "Carga": sheet_name,
-                            "Codigo input": match_key,
-                            "Descuento": discount,
-                            "Motivo": "No existe en Matrixify",
-                        }
+                    unique_key, code_type, code_value = preferred_missing_code(match_key)
+                    record_key = (sheet_name, code_type, unique_key)
+                    existing = next(
+                        (
+                            row
+                            for row in missing_rows
+                            if row["Carga"] == sheet_name
+                            and row["Tipo codigo"] == code_type
+                            and normalize_key(row["Codigo no encontrado"]) == unique_key
+                        ),
+                        None,
                     )
+                    if existing:
+                        existing["SKUs input asociados"] += 1
+                        existing["Descuento"] = max(to_discount(existing["Descuento"]) or 0, discount)
+                    else:
+                        missing_rows.append(
+                            {
+                                "Carga": sheet_name,
+                                "Tipo codigo": code_type,
+                                "Codigo no encontrado": code_value,
+                                "SKUs input asociados": 1,
+                                "Descuento": discount,
+                                "Motivo": "No existe en Matrixify",
+                            }
+                        )
 
             out_df = matrixify_df[matrixify_df[group_col].isin(scope_groups)].copy()
             if out_df.empty:
