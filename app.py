@@ -528,30 +528,27 @@ def load_product_lookup_from_bigquery(ids: tuple[str, ...], modcols: tuple[str, 
     id_column = str(config.get("id_column", "CODINT_MA")).strip()
     modcol_column = str(config.get("modcol_column", "COD MOD COL")).strip()
     brand_column = str(config.get("brand_column", "MARCA_MA")).strip()
+    modcol_expr = f"CAST(`{modcol_column}` AS STRING)"
     if table and not query:
         schema_names = [field.name for field in client.get_table(table).schema]
+        schema_by_normalized = {normalize_key(name): name for name in schema_names}
         id_column = pick_schema_column(
             schema_names,
             id_column,
             ["CODINT_MA", "ID PRODUCTO", "SKU", "VARIANT SKU", "CODIGO", "CODIGO_SKU"],
             "SKU / ID PRODUCTO",
         )
-        modcol_column = pick_schema_column(
-            schema_names,
-            modcol_column,
-            [
-                "CODCOL_MA",
-                "CODCOL MA",
-                "COD MOD COL",
-                "COD_MOD_COL",
-                "MODCOL",
-                "MOD-COL",
-                "MOD COL",
-                "MODELO COLOR",
-                "MODELO_COLOR",
-            ],
-            "COD MOD COL",
-        )
+        modcol_candidates = ["COD MOD COL", "COD_MOD_COL", "MODCOL", "MOD-COL", "MOD COL", "MODELO COLOR", "MODELO_COLOR"]
+        try:
+            modcol_column = pick_schema_column(schema_names, modcol_column, modcol_candidates, "COD MOD COL")
+            modcol_expr = f"CAST(`{modcol_column}` AS STRING)"
+        except RuntimeError:
+            model_column = schema_by_normalized.get("CODMODMA")
+            color_column = schema_by_normalized.get("CODCOLMA")
+            if not model_column or not color_column:
+                sample = ", ".join(schema_names[:25])
+                raise RuntimeError(f"No encontre como armar COD MOD COL en BigQuery. Columnas disponibles: {sample}")
+            modcol_expr = f"CONCAT(CAST(`{model_column}` AS STRING), '-', CAST(`{color_column}` AS STRING))"
         brand_column = pick_schema_column(
             schema_names,
             brand_column,
@@ -562,18 +559,18 @@ def load_product_lookup_from_bigquery(ids: tuple[str, ...], modcols: tuple[str, 
     sql = f"""
     SELECT
       CAST(`{id_column}` AS STRING) AS id_producto,
-      CAST(`{modcol_column}` AS STRING) AS modcol,
+      {modcol_expr} AS modcol,
       CAST(`{brand_column}` AS STRING) AS marca
     FROM {base_sql}
     WHERE
-      CAST(`{id_column}` AS STRING) IN UNNEST(@ids)
-      OR CAST(`{modcol_column}` AS STRING) IN UNNEST(@modcols)
+      REGEXP_REPLACE(UPPER(CAST(`{id_column}` AS STRING)), r'[^A-Z0-9]', '') IN UNNEST(@ids)
+      OR REGEXP_REPLACE(UPPER({modcol_expr}), r'[^A-Z0-9]', '') IN UNNEST(@modcols)
     """
     job_config = bigquery.QueryJobConfig(
         use_legacy_sql=False,
         query_parameters=[
-            bigquery.ArrayQueryParameter("ids", "STRING", list(ids)),
-            bigquery.ArrayQueryParameter("modcols", "STRING", list(modcols)),
+            bigquery.ArrayQueryParameter("ids", "STRING", [normalize_key(value) for value in ids]),
+            bigquery.ArrayQueryParameter("modcols", "STRING", [normalize_key(value) for value in modcols]),
         ],
     )
     rows = client.query(
