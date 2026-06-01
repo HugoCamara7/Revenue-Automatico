@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import smtplib
 import tempfile
 from email.message import EmailMessage
@@ -51,6 +52,11 @@ st.set_page_config(page_title="Matrixify Revenue", layout="wide")
 st.markdown(
     """
     <style>
+    header[data-testid="stHeader"] { display: none; }
+    [data-testid="stToolbar"] { display: none; }
+    [data-testid="stDecoration"] { display: none; }
+    #MainMenu { visibility: hidden; }
+    footer { visibility: hidden; }
     .stApp { background: #f4f7fb; color: #031b4e; }
     [data-testid="stSidebar"] {
         background: #eef3fa;
@@ -69,10 +75,16 @@ st.markdown(
         padding: 24px 22px;
         margin-bottom: 34px;
         box-shadow: 0 20px 45px rgba(16, 58, 120, 0.08);
+        min-height: 92px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
     .sidebar-logo-card img {
-        max-width: 220px;
+        max-width: 210px;
+        width: 100%;
         display: block;
+        object-fit: contain;
     }
     .sidebar-label {
         color: #031b4e;
@@ -270,6 +282,10 @@ st.markdown(
         background: #eafaf2;
         border-color: #9ee7bf;
     }
+    .source-box.warn {
+        background: #fff8df;
+        border-color: #ffd16a;
+    }
     .source-title {
         font-weight: 900;
         color: #031b4e;
@@ -375,11 +391,23 @@ def bigquery_is_configured() -> bool:
     return enabled not in ("0", "false", "no", "off") and bool(config.get("table") or config.get("query"))
 
 
+def image_data_uri(path: str) -> str:
+    file_path = Path(path)
+    if not file_path.exists():
+        return ""
+    suffix = file_path.suffix.lower().replace(".", "")
+    mime = "jpeg" if suffix in ("jpg", "jpeg") else "png"
+    encoded = base64.b64encode(file_path.read_bytes()).decode("ascii")
+    return f"data:image/{mime};base64,{encoded}"
+
+
 def render_sidebar_logo() -> None:
-    if Path("forus_logo.png").exists():
-        st.sidebar.markdown('<div class="sidebar-logo-card">', unsafe_allow_html=True)
-        st.sidebar.image("forus_logo.png", use_container_width=True)
-        st.sidebar.markdown("</div>", unsafe_allow_html=True)
+    logo_src = image_data_uri("forus_logo.png")
+    if logo_src:
+        st.sidebar.markdown(
+            f'<div class="sidebar-logo-card"><img src="{logo_src}" alt="FORUS"></div>',
+            unsafe_allow_html=True,
+        )
     else:
         st.sidebar.markdown(
             '<div class="sidebar-logo-card"><h2>FORUS</h2><div>CONSUMER FANATIC</div></div>',
@@ -387,23 +415,24 @@ def render_sidebar_logo() -> None:
         )
 
 
-def render_top_header(site_name: str, use_bigquery: bool) -> None:
-    bigquery_badge = "BigQuery activo" if use_bigquery and bigquery_is_configured() else "BigQuery opcional"
-    shopify_badge = "Shopify conectado"
+def render_top_header(site_name: str) -> None:
+    bigquery_badge = "BigQuery obligatorio" if bigquery_is_configured() else "Falta BigQuery"
+    matrixify_badge = "IDs Matrixify"
     shopify_html = ""
-    if Path("shopify_logo.png").exists():
-        shopify_html = '<img class="shopify-mini" src="shopify_logo.png" alt="Shopify">'
+    shopify_src = image_data_uri("shopify_logo.png")
+    if shopify_src:
+        shopify_html = f'<img class="shopify-mini" src="{shopify_src}" alt="Shopify">'
     st.markdown(
         f"""
         <div class="top-hero">
           <div>
-            <div class="eyebrow">MATRIXIFY CONTROL CENTER</div>
-            <h1>{site_name} -> Shopify</h1>
-            <p>Convierte el input comercial en un Excel Matrixify validado usando BigQuery como apoyo maestro.</p>
+            <div class="eyebrow">REVENUE DISCOUNT CENTER</div>
+            <h1>{site_name} -> Matrixify</h1>
+            <p>Genera cargas de descuentos desde COD MOD COL, cruzando BigQuery con el ultimo Matrixify del sitio.</p>
           </div>
           <div class="hero-right">
             <span class="pill">{bigquery_badge}</span>
-            <span class="pill green">{shopify_badge}</span>
+            <span class="pill green">{matrixify_badge}</span>
             {shopify_html}
           </div>
         </div>
@@ -412,9 +441,9 @@ def render_top_header(site_name: str, use_bigquery: bool) -> None:
     )
 
 
-def render_steps(revenue_loaded: bool, matrixify_loaded: bool, use_bigquery: bool, target=st) -> None:
+def render_steps(revenue_loaded: bool, matrixify_loaded: bool, target=st) -> None:
     input_badge = "Actual" if revenue_loaded else "Pend."
-    bq_badge = "OK" if use_bigquery and bigquery_is_configured() else "Opc."
+    bq_badge = "OK" if bigquery_is_configured() else "Falta"
     validation_badge = "Revisar" if not matrixify_loaded else "OK"
     target.markdown(
         f"""
@@ -427,17 +456,17 @@ def render_steps(revenue_loaded: bool, matrixify_loaded: bool, use_bigquery: boo
             </div>
             <div class="step-box">
               <div class="step-num">2</div>
-              <div><div class="step-title">BigQuery</div><div class="step-sub">Fuente maestra</div></div>
+              <div><div class="step-title">BigQuery</div><div class="step-sub">MODCOL a SKUs</div></div>
               <div class="step-badge">{bq_badge}</div>
             </div>
             <div class="step-box">
               <div class="step-num">3</div>
-              <div><div class="step-title">Validacion</div><div class="step-sub">Reglas y cruces</div></div>
+              <div><div class="step-title">Validacion</div><div class="step-sub">Vendor y descuentos</div></div>
               <div class="step-badge warn">{validation_badge}</div>
             </div>
             <div class="step-box">
               <div class="step-num">4</div>
-              <div><div class="step-title">Shopify</div><div class="step-sub">Matrixify final</div></div>
+              <div><div class="step-title">Salida</div><div class="step-sub">Excel Matrixify</div></div>
               <div class="step-badge blue">Pend.</div>
             </div>
           </div>
@@ -450,7 +479,7 @@ def render_steps(revenue_loaded: bool, matrixify_loaded: bool, use_bigquery: boo
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_product_lookup_from_bigquery(ids: tuple[str, ...], modcols: tuple[str, ...]) -> dict[str, dict]:
     if not ids and not modcols:
-        return {"by_id": {}, "by_modcol": {}}
+        raise RuntimeError("El Revenue debe traer al menos un COD MOD COL para consultar BigQuery.")
     try:
         from google.cloud import bigquery
         from google.oauth2 import service_account
@@ -460,12 +489,12 @@ def load_product_lookup_from_bigquery(ids: tuple[str, ...], modcols: tuple[str, 
     config = get_bigquery_config()
     enabled = str(config.get("enabled", "true")).strip().lower()
     if enabled in ("0", "false", "no", "off"):
-        return {}
+        raise RuntimeError("BigQuery esta desactivado en Secrets. Para Revenue Automatico es obligatorio.")
 
     table = str(config.get("table", "")).strip()
     query = str(config.get("query", "")).strip().rstrip(";")
     if not table and not query:
-        return {}
+        raise RuntimeError("Falta configurar [bigquery].table o [bigquery].query en Secrets.")
 
     credentials_info = config.get("service_account_info")
     credentials = service_account.Credentials.from_service_account_info(dict(credentials_info)) if credentials_info else None
@@ -537,49 +566,46 @@ with st.sidebar:
         "Marcas a afectar",
         site["brands"],
         default=site["brands"][:1],
-        help="Se usa MARCA del Revenue. Si falta, se completa desde BigQuery por ID PRODUCTO o MODCOL.",
+        help="La marca se trae desde BigQuery usando el COD MOD COL del Revenue.",
     )
-    use_bigquery = st.checkbox(
-        "Completar MODCOL/MARCA con BigQuery",
-        value=True,
-        help="Consulta ARTI por ID PRODUCTO y MODCOL del Revenue. No reemplaza los IDs de Matrixify.",
+    st.markdown(
+        '<div class="connection-ok">BigQuery obligatorio para COD MOD COL</div>',
+        unsafe_allow_html=True,
     )
     st.caption(f"Vendor: {site['vendor']} | Salida: {site['output']}")
     st.markdown(
         f"""
         <div class="sidebar-status-card">
-          <button style="border:1px solid #004aad;border-radius:999px;background:white;color:#003d8f;padding:10px 14px;">
-            Probar conexion Shopify
-          </button>
-          <div class="connection-ok">Conectado a {site_name}</div>
-          <div style="color:#6b7894;font-size:13px;">{site['vendor']}.myshopify.com</div>
-          <div style="color:#6b7894;font-size:13px;margin-top:18px;">Origen token: secret</div>
+          <div style="font-weight:900;color:#031b4e;margin-bottom:12px;">Reglas de carga</div>
+          <div class="connection-ok">Conserva IDs del Matrixify subido</div>
+          <div style="color:#6b7894;font-size:13px;">Vendor esperado: {site['vendor']}</div>
+          <div style="color:#6b7894;font-size:13px;margin-top:12px;">Salida: {site['output']}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
 
-render_top_header(site_name, use_bigquery)
+render_top_header(site_name)
 steps_placeholder = st.empty()
 
 st.markdown(
     """
     <div class="main-card">
-      <h2>Archivos y fuentes cargadas</h2>
-      <div class="muted">Resumen limpio de lo que la app usara para preparar la carga.</div>
+      <h2>Preparar carga de descuentos</h2>
+      <div class="muted">Sube el Revenue comercial y el ultimo Matrixify del sitio. La app arma una hoja por campana.</div>
       <div class="source-grid">
         <div class="source-box active">
-          <div class="source-title">Input productos</div>
-          <div class="source-sub">Revenue comercial cargado en pantalla</div>
+          <div class="source-title">Revenue comercial</div>
+          <div class="source-sub">Trae COD MOD COL y descuentos por campana</div>
         </div>
         <div class="source-box green">
-          <div class="source-title">Shopify Matrixify</div>
-          <div class="source-sub">Ultimo catalogo del sitio para conservar IDs</div>
+          <div class="source-title">BigQuery maestro</div>
+          <div class="source-sub">Convierte COD MOD COL en SKUs y marca</div>
         </div>
-        <div class="source-box">
-          <div class="source-title">ARTI BigQuery</div>
-          <div class="source-sub">Completa SKUs, MODCOL y marca si aplica</div>
+        <div class="source-box warn">
+          <div class="source-title">Control de precios</div>
+          <div class="source-sub">Sin descuento: precio original y Compare At vacio</div>
         </div>
       </div>
     </div>
@@ -598,7 +624,7 @@ with upload_right:
         help="Debe corresponder al mismo sitio destino para conservar Product ID y Variant ID.",
     )
 
-render_steps(revenue_file is not None, matrixify_file is not None, use_bigquery, target=steps_placeholder)
+render_steps(revenue_file is not None, matrixify_file is not None, target=steps_placeholder)
 
 with st.expander("Aviso por correo", expanded=False):
     notify_email = st.text_input(
@@ -612,15 +638,12 @@ with st.expander("Formato comercial esperado"):
     st.dataframe(
         pd.DataFrame(
             [
-                {
-                    "ID PRODUCTO": "SKU123",
-                    "MODCOL": "MODELO-COLOR",
-                    "MARCA": selected_brands[0] if selected_brands else "COLUMBIA",
-                    "RESTO DEL MES": "0%",
-                    "CLB 40": "40%",
-                }
+                ["Inicio", "2026-06-06 20:00", "2026-06-15 10:00", "2026-06-01 10:00"],
+                ["Fin", "2026-06-07 23:59", "2026-06-30 23:59", "2026-06-30 23:59"],
+                ["Cod Mod Col", "CLB 40", "SALE", "RESTO DEL MES"],
+                ["MODELO-COLOR", "40%", "30%", "0%"],
             ]
-        ),
+        ).rename(columns={0: "", 1: "Campana 1", 2: "Campana 2", 3: "Campana 3"}),
         hide_index=True,
         use_container_width=True,
     )
@@ -628,21 +651,21 @@ with st.expander("Formato comercial esperado"):
 st.markdown(
     f"""
     <div class="status-card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
-        <div style="font-size:20px;font-weight:900;color:#031b4e;">Estado de bases</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+        <div style="font-size:20px;font-weight:900;color:#031b4e;">Estado de preparacion</div>
         <span class="pill">Fuentes listas</span>
       </div>
       <div class="source-grid">
         <div class="source-box">
-          <div class="source-title">Datos actuales Shopify</div>
-          <div class="source-sub">Ultimo Matrixify cargado</div>
+          <div class="source-title">Revenue</div>
+          <div class="source-sub">Input de descuentos comercial</div>
         </div>
         <div class="source-box">
-          <div class="source-title">ARTI</div>
-          <div class="source-sub">{"BigQuery activo" if use_bigquery and bigquery_is_configured() else "BigQuery opcional"}</div>
+          <div class="source-title">Cruce BigQuery</div>
+          <div class="source-sub">Obligatorio para convertir MODCOL en SKUs</div>
         </div>
         <div class="source-box">
-          <div class="source-title">Salida</div>
+          <div class="source-title">Archivo final</div>
           <div class="source-sub">{site["output"]}</div>
         </div>
       </div>
@@ -662,6 +685,9 @@ if generate:
     if not selected_brands:
         st.error("Selecciona al menos una marca a afectar.")
         st.stop()
+    if not bigquery_is_configured():
+        st.error("BigQuery es obligatorio. Configura [bigquery] en Secrets antes de generar.")
+        st.stop()
 
     try:
         with st.status("Procesando archivos...", expanded=True) as status:
@@ -680,19 +706,34 @@ if generate:
                 if message:
                     st.warning(message)
 
-                product_lookup = {}
-                if use_bigquery:
-                    st.write("Consultando BigQuery para completar SKUs/MODCOL/MARCA...")
-                    revenue_ids, revenue_modcols = extract_revenue_lookup_values(revenue_path)
-                    product_lookup = load_product_lookup_from_bigquery(tuple(revenue_ids), tuple(revenue_modcols))
-                    found_ids = len(product_lookup.get("by_id", {}))
-                    found_modcols = len(product_lookup.get("by_modcol", {}))
-                    if found_ids or found_modcols:
-                        st.write(
-                            f"BigQuery encontro {found_ids:,} SKUs y {found_modcols:,} COD MOD COL."
-                        )
-                    else:
-                        st.warning("BigQuery no devolvio datos. Se usara solo lo que venga en el Revenue.")
+                st.write("Consultando BigQuery para convertir COD MOD COL en SKUs/MARCA...")
+                revenue_ids, revenue_modcols = extract_revenue_lookup_values(revenue_path)
+                if not revenue_modcols:
+                    st.error("El Revenue debe traer la columna COD MOD COL. Ya no se procesa solo con SKU.")
+                    st.stop()
+                product_lookup = load_product_lookup_from_bigquery(tuple(revenue_ids), tuple(revenue_modcols))
+                found_ids = len(product_lookup.get("by_id", {}))
+                found_modcols = len(product_lookup.get("by_modcol", {}))
+                if not found_ids or not found_modcols:
+                    st.error(
+                        "BigQuery no devolvio SKUs para los COD MOD COL del Revenue. "
+                        "Revisa que los codigos existan en ARTI antes de generar."
+                    )
+                    st.stop()
+                missing_bq_modcols = [
+                    modcol
+                    for modcol in revenue_modcols
+                    if normalize_key(modcol) not in product_lookup.get("by_modcol", {})
+                ]
+                if missing_bq_modcols:
+                    st.error(
+                        "Hay COD MOD COL del Revenue que no existen en BigQuery/ARTI. "
+                        "Corrige estos codigos antes de generar: "
+                        + ", ".join(missing_bq_modcols[:30])
+                        + ("..." if len(missing_bq_modcols) > 30 else "")
+                    )
+                    st.stop()
+                st.write(f"BigQuery encontro {found_ids:,} SKUs y {found_modcols:,} COD MOD COL.")
 
                 st.write("Cruzando Revenue con Matrixify y generando hojas...")
                 result = build_discount_workbook(
