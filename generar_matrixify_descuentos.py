@@ -148,20 +148,6 @@ def read_matrixify(path: Path) -> pd.DataFrame:
     return df
 
 
-def validate_matrixify_vendor(matrixify_df: pd.DataFrame, expected_vendor: str) -> tuple[bool, str]:
-    if "Vendor" not in matrixify_df.columns:
-        return True, "No pude validar Vendor porque el Matrixify no trae columna Vendor."
-    vendors = {
-        clean_text(value).lower()
-        for value in matrixify_df["Vendor"].dropna().tolist()
-        if clean_text(value)
-    }
-    expected = expected_vendor.lower()
-    if vendors and expected not in vendors:
-        return False, f"Vendor esperado: {expected_vendor}. Vendors encontrados: {', '.join(sorted(vendors)[:8])}."
-    return True, ""
-
-
 def extract_revenue_lookup_values(path: Path) -> tuple[list[str], list[str]]:
     header_row = find_revenue_header_row(path)
     df = pd.read_excel(path, sheet_name=0, header=header_row, dtype=object, usecols=lambda col: True)
@@ -375,16 +361,21 @@ def build_discount_workbook(
 
     selected_norm = {normalize(brand) for brand in selected_brands or []}
     not_affected_rows: list[dict[str, Any]] = []
+    not_affected_seen: set[tuple[str, str]] = set()
     if selected_norm and brand_col:
         brand_mask = revenue_df[brand_col].map(normalize).isin(selected_norm)
         for _, row in revenue_df.loc[~brand_mask].iterrows():
             code = build_match_key(row, id_col, modcol_col)
-            if clean_text(row.get(id_col)):
+            unique_key, code_type, code_value = preferred_missing_code(code)
+            seen_key = (code_type, unique_key)
+            if clean_text(code_value) and seen_key not in not_affected_seen:
+                not_affected_seen.add(seen_key)
                 not_affected_rows.append(
                     {
-                        "Codigo input": code,
-                        "Marca input": clean_text(row.get(brand_col)),
-                        "Motivo": "Marca fuera de la seleccion",
+                        "Tipo codigo": code_type,
+                        "Codigo input": code_value,
+                        "Marca BigQuery": clean_text(row.get(brand_col)),
+                        "Motivo": "No se modifica porque pertenece a otra marca",
                     }
                 )
         revenue_scope = revenue_df.loc[brand_mask].copy()
@@ -406,12 +397,12 @@ def build_discount_workbook(
         missing_records.setdefault(
             (code_type, unique_key),
             {
-                "Carga": "Alcance input",
+                "Carga": "Falta crear en Matrixify",
                 "Tipo codigo": code_type,
                 "Codigo no encontrado": code_value,
                 "SKUs input asociados": 0,
                 "Descuento": "",
-                "Motivo": "No existe en Matrixify",
+                "Motivo": "Falta crear en Matrixify",
             },
         )
         missing_records[(code_type, unique_key)]["SKUs input asociados"] += 1
@@ -463,7 +454,7 @@ def build_discount_workbook(
                                 "Codigo no encontrado": code_value,
                                 "SKUs input asociados": 1,
                                 "Descuento": discount,
-                                "Motivo": "No existe en Matrixify",
+                                "Motivo": "Falta crear en Matrixify",
                             }
                         )
 
