@@ -114,9 +114,6 @@ def find_header_row(path: Path, required: list[str], sheet_name: str | int = 0) 
 def find_revenue_header_row(path: Path) -> int:
     preview = pd.read_excel(path, sheet_name=0, header=None, nrows=40, dtype=object)
     required_any = {
-        "ID PRODUCTO",
-        "SKU",
-        "VARIANT SKU",
         "MODCOL",
         "COD MOD COL",
         "COD_MOD_COL",
@@ -127,7 +124,7 @@ def find_revenue_header_row(path: Path) -> int:
         row_values = {normalize(value) for value in row.tolist() if clean_text(value)}
         if row_values.intersection(required_any):
             return int(idx)
-    raise ValueError("No encontre encabezados de Revenue: debe traer ID PRODUCTO o MODCOL.")
+    raise ValueError("No encontre encabezados de Revenue: debe traer COD MOD COL.")
 
 
 def first_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
@@ -186,12 +183,13 @@ def read_revenue(
 ) -> tuple[pd.DataFrame, list[Campaign], str, str | None, str | None, list[str]]:
     header_row = find_revenue_header_row(path)
     raw_top = pd.read_excel(path, sheet_name=0, header=None, nrows=header_row, dtype=object)
+    raw_header = pd.read_excel(path, sheet_name=0, header=None, skiprows=header_row, nrows=1, dtype=object)
     df = pd.read_excel(path, sheet_name=0, header=header_row, dtype=object).dropna(how="all").copy()
 
     id_col = first_column(df, ["ID PRODUCTO", "SKU", "VARIANT SKU"])
     modcol_col = first_column(df, ["MODCOL", "COD MOD COL", "COD_MOD_COL", "MODELO COLOR", "MOD-COL"])
-    if not id_col and not modcol_col:
-        raise ValueError("El Revenue debe tener ID PRODUCTO o MODCOL.")
+    if not modcol_col:
+        raise ValueError("El Revenue debe tener COD MOD COL. BigQuery usa ese campo para traer los SKUs.")
     if not id_col:
         df["ID PRODUCTO"] = ""
         id_col = "ID PRODUCTO"
@@ -282,15 +280,19 @@ def read_revenue(
         col_pos = list(df.columns).index(column)
         starts_at = ""
         ends_at = ""
+        display_column = clean_text(column)
+        if col_pos < raw_header.shape[1]:
+            original_header = clean_text(raw_header.iat[0, col_pos])
+            display_column = original_header or display_column
         if header_row >= 2 and col_pos < raw_top.shape[1]:
             starts_at = clean_text(raw_top.iat[header_row - 2, col_pos])
         if header_row >= 1 and col_pos < raw_top.shape[1]:
             ends_at = clean_text(raw_top.iat[header_row - 1, col_pos])
-        name_parts = [part for part in [starts_at, ends_at, clean_text(column)] if part]
-        name = " - ".join(name_parts) if name_parts else clean_text(column)
+        name_parts = [part for part in [starts_at, ends_at, display_column] if part]
+        name = " - ".join(name_parts) if name_parts else display_column
         kind = "resto_mes" if "RESTO" in normalize(name) or "ANT" in normalize(name) else "programado"
         if df[column].dropna().empty:
-            invalid_columns.append(clean_text(column))
+            invalid_columns.append(display_column)
             continue
         campaigns.append(Campaign(name=name, column=column, kind=kind, starts_at=starts_at, ends_at=ends_at))
 
