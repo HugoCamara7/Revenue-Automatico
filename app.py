@@ -69,7 +69,7 @@ st.markdown(
         visibility: hidden !important;
         pointer-events: none !important;
     }
-    [data-testid="stSidebar"] > div:first-child { padding: 64px 24px 28px; }
+    [data-testid="stSidebar"] > div:first-child { padding: 22px 24px 28px; }
     .block-container {
         max-width: 1180px;
         padding-top: 30px;
@@ -80,7 +80,7 @@ st.markdown(
         border: 1px solid #d7e4f5;
         border-radius: 24px;
         padding: 24px 22px;
-        margin-bottom: 34px;
+        margin-bottom: 28px;
         box-shadow: 0 20px 45px rgba(16, 58, 120, 0.08);
         min-height: 92px;
         display: flex;
