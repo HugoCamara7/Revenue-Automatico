@@ -829,6 +829,8 @@ if generate:
         st.stop()
 
     brand_counts = {}
+    email_status = ""
+    email_detail = ""
     try:
         with st.status("Generando archivo Matrixify...", expanded=False) as status:
             with tempfile.TemporaryDirectory() as temp_dir:
@@ -902,17 +904,29 @@ if generate:
                             attachment_name=f"codigos_faltantes_{site_name.lower().replace('.', '_')}.xlsx",
                             attachment_bytes=missing_email_bytes,
                         )
+                        email_status = "sent"
+                        email_detail = f"Correo enviado a {notify_email.strip()} con los codigos faltantes."
                     except Exception as email_exc:
-                        st.warning(
-                            "El Excel fue generado, pero no se pudo enviar el correo de faltantes: "
-                            f"{email_exc}"
-                        )
+                        email_status = "failed"
+                        email_detail = f"El Excel fue generado, pero no se pudo enviar el correo de faltantes: {email_exc}"
+                elif notify_email.strip() and result["missing"].empty:
+                    email_status = "skipped_no_missing"
+                    email_detail = "No se envio correo porque no hubo codigos faltantes en Matrixify."
+                elif not notify_email.strip() and not result["missing"].empty:
+                    email_status = "skipped_no_email"
+                    email_detail = "No se envio correo porque no ingresaste destinatario en Aviso al brand manager."
                 status.update(label="Archivo generado correctamente.", state="complete")
 
         total_rows = int(result["summary"]["Filas Matrixify generadas"].sum()) if not result["summary"].empty else 0
         total_discounted = int(result["summary"]["Filas con descuento"].sum()) if not result["summary"].empty else 0
         total_missing = len(result["missing"])
         total_not_affected = len(result["not_affected"])
+        if email_status == "sent":
+            st.success(email_detail)
+        elif email_status == "failed":
+            st.warning(email_detail)
+        elif email_status in ("skipped_no_missing", "skipped_no_email"):
+            st.info(email_detail)
         st.markdown(
             f"""
             <div class="result-grid">
