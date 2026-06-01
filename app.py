@@ -564,7 +564,11 @@ def render_steps(revenue_loaded: bool, matrixify_loaded: bool, target=st) -> Non
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_product_lookup_from_bigquery(ids: tuple[str, ...], modcols: tuple[str, ...]) -> dict[str, dict]:
+def load_product_lookup_from_bigquery(
+    ids: tuple[str, ...],
+    modcols: tuple[str, ...],
+    selected_brands: tuple[str, ...] = (),
+) -> dict[str, dict]:
     if not ids and not modcols:
         raise RuntimeError("El Revenue debe traer al menos un COD MOD COL para consultar BigQuery.")
     try:
@@ -663,6 +667,7 @@ def load_product_lookup_from_bigquery(ids: tuple[str, ...], modcols: tuple[str, 
 
     by_id: dict[str, dict[str, str]] = {}
     by_modcol: dict[str, dict] = {}
+    selected_norm = {normalize_key(brand) for brand in selected_brands}
     for row in rows:
         row_dict = dict(row.items())
         sku = str(row_dict.get("id_producto") or "").strip()
@@ -674,11 +679,31 @@ def load_product_lookup_from_bigquery(ids: tuple[str, ...], modcols: tuple[str, 
             by_id[sku_key] = {"modcol": modcol, "brand": brand}
         if not modcol_key:
             continue
-        info = by_modcol.setdefault(modcol_key, {"ids": [], "brand": brand, "modcol": modcol})
+        info = by_modcol.setdefault(modcol_key, {"ids": [], "brand": "", "modcol": modcol, "brand_counts": {}})
         if sku and sku not in info["ids"]:
             info["ids"].append(sku)
-        if brand and not info.get("brand"):
-            info["brand"] = brand
+        if brand:
+            counts = info.setdefault("brand_counts", {})
+            brand_norm = normalize_key(brand)
+            counts[brand_norm] = {
+                "brand": brand,
+                "count": counts.get(brand_norm, {}).get("count", 0) + 1,
+            }
+            if selected_norm and brand_norm in selected_norm:
+                info["brand"] = brand
+            elif not info.get("brand"):
+                info["brand"] = brand
+    for info in by_modcol.values():
+        counts = info.get("brand_counts", {})
+        if counts and not (selected_norm and normalize_key(info.get("brand")) in selected_norm):
+            best = max(counts.values(), key=lambda item: item["count"])
+            info["brand"] = best["brand"]
+        for sku in info.get("ids", []):
+            sku_key = normalize_key(sku)
+            if sku_key and info.get("brand"):
+                by_id.setdefault(sku_key, {"modcol": info.get("modcol", ""), "brand": ""})
+                by_id[sku_key]["brand"] = info["brand"]
+                by_id[sku_key]["modcol"] = info.get("modcol", by_id[sku_key].get("modcol", ""))
     return {"by_id": by_id, "by_modcol": by_modcol}
 
 
@@ -845,7 +870,11 @@ if generate:
                 if not revenue_modcols:
                     st.error("El Revenue debe traer la columna COD MOD COL. Ya no se procesa solo con SKU.")
                     st.stop()
-                product_lookup = load_product_lookup_from_bigquery(tuple(revenue_ids), tuple(revenue_modcols))
+                product_lookup = load_product_lookup_from_bigquery(
+                    tuple(revenue_ids),
+                    tuple(revenue_modcols),
+                    tuple(selected_brands),
+                )
                 found_ids = len(product_lookup.get("by_id", {}))
                 found_modcols = len(product_lookup.get("by_modcol", {}))
                 if not found_ids or not found_modcols:
