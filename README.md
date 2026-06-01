@@ -8,36 +8,35 @@ Aplicacion Streamlit rapida para generar cargas Matrixify de descuentos por camp
 2. Elegir marcas a afectar.
 3. Subir Revenue/input comercial.
 4. Subir ultimo catalogo Matrixify del mismo sitio.
-5. Generar y descargar el Excel.
+5. La app cruza `COD MOD COL` contra BigQuery para traer SKUs y marca.
+6. Generar y descargar el Excel.
 
 ## Formato requerido del Revenue
 
 Columnas minimas:
 
 ```text
-ID PRODUCTO
+Fila 1: Inicio | fecha/hora inicio campana 1 | fecha/hora inicio campana 2 | ...
+Fila 2: Fin    | fecha/hora fin campana 1    | fecha/hora fin campana 2    | ...
+Fila 3: Cod Mod Col | nombre campana 1 | nombre campana 2 | ...
 ```
 
-o, si el comercial trabaja por modelo-color:
+Ejemplo:
 
 ```text
-MODCOL
-```
-
-Columnas recomendadas cuando no se use BigQuery:
-
-```text
-ID PRODUCTO | MODCOL | MARCA | RESTO DEL MES | CLB 40 | 06 ABRIL
+Inicio      | 2026-06-06 20:00 | 2026-06-15 10:00 | 2026-06-01 10:00
+Fin         | 2026-06-07 23:59 | 2026-06-30 23:59 | 2026-06-30 23:59
+Cod Mod Col | CLB 40           | SALE             | RESTO DEL MES
+ABC123-001  | 40%              | 30%              | 0%
 ```
 
 Reglas:
 
-- `ID PRODUCTO` debe coincidir con `Variant SKU` de Matrixify.
-- `MODCOL` puede venir solo; BigQuery trae los SKUs/ID PRODUCTO asociados a ese modelo-color.
-- `MARCA` decide si el producto se puede modificar.
-- Si `ID PRODUCTO`, `MODCOL` o `MARCA` faltan, la app puede completarlos desde BigQuery usando lo que el Revenue traiga.
+- El comercial solo debe mandar `COD MOD COL`.
+- BigQuery es obligatorio: trae los SKUs/ID PRODUCTO y la marca asociados a cada modelo-color.
 - Si eliges `COLUMBIA`, solo se cambian filas donde `MARCA` sea Columbia.
 - Las otras marcas quedan en `No afectados por marca`.
+- Si un `COD MOD COL` no existe en BigQuery, la app se detiene para corregir el input.
 - Si un producto no existe en Matrixify queda en `No encontrados`.
 - `Variant Compare At Price` solo se llena cuando hay descuento real.
 - Si el descuento es 0% o vacio, se conserva precio original y compare queda vacio.
@@ -48,7 +47,7 @@ Reglas:
 - Bloquea Matrixify de otro vendor cuando la columna `Vendor` permite validarlo.
 - Genera hoja `Resumen`.
 - Genera hoja `Descuentos por %`.
-- Genera hoja `No encontrados`.
+- Genera hoja `No encontrados` con codigos modelo-color unicos cuando algo no existe en Matrixify.
 - Genera hoja `No afectados por marca`.
 
 ## Ejecutar local
@@ -77,9 +76,9 @@ use_ssl = "false"
 
 Luego, en la app, abre `Aviso por correo` y escribe el correo destino antes de generar.
 
-## BigQuery opcional para SKUs/MODCOL/MARCA
+## BigQuery obligatorio para SKUs/MODCOL/MARCA
 
-La app puede completar `ID PRODUCTO`, `MODCOL` y `MARCA` desde ARTI/BigQuery. Si el Revenue trae solo `MODCOL`, BigQuery trae todos los SKUs asociados y esos SKUs se cruzan contra `Variant SKU` del ultimo Matrixify.
+La app completa SKUs y marca desde ARTI/BigQuery usando `COD MOD COL`. Es obligatorio porque el Revenue comercial ya no necesita traer SKU ni marca.
 
 Secrets minimos:
 
