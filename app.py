@@ -150,6 +150,20 @@ st.markdown(
         margin: 0 0 10px;
         letter-spacing: 0;
     }
+    .hero-arrow {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        margin: 0 8px;
+        border-radius: 999px;
+        background: #eef6ff;
+        color: #006bd6;
+        font-size: 22px;
+        font-weight: 900;
+        vertical-align: middle;
+    }
     .top-hero p {
         color: #536b92;
         margin: 0;
@@ -514,7 +528,7 @@ def render_top_header(site_name: str) -> None:
         <div class="top-hero">
           <div>
             <div class="eyebrow">REVENUE DISCOUNT CENTER</div>
-            <h1>{site_name} -> Matrixify</h1>
+            <h1>{site_name}<span class="hero-arrow">›</span>Matrixify</h1>
             <p>Genera cargas de descuentos desde COD MOD COL, cruzando BigQuery con el ultimo Matrixify del sitio.</p>
           </div>
           <div class="hero-right">
