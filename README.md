@@ -65,8 +65,13 @@ streamlit run app.py
 Configura usuarios en `Secrets`:
 
 ```toml
-[auth.users]
-"hugo.camara@forus.pe" = "CONTRASENA_SEGURA"
+[[auth.users_list]]
+email = "hugo.camara@forus.pe"
+password = "CONTRASENA_SEGURA"
+
+[[auth.users_list]]
+email = "rosa.terrones@forus.pe"
+password = "CONTRASENA_SEGURA"
 ```
 
 Tambien puedes usar una clave compartida:
