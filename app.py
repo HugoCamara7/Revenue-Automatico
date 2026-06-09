@@ -727,7 +727,28 @@ def render_login() -> None:
         """
         <style>
         [data-testid="stSidebar"] { display: none !important; }
-        .block-container { max-width: none; padding: 0; }
+        .stApp { background: #142238; }
+        .block-container { max-width: 640px; padding-top: 28px; padding-bottom: 36px; }
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            background: #ffffff;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 28px 70px rgba(0, 0, 0, .24);
+        }
+        div[data-testid="stForm"] {
+            border: 1px solid #d7dce5;
+            border-radius: 10px;
+            padding: 22px;
+            margin: 26px 38px 10px;
+        }
+        div[data-testid="stForm"] button {
+            background: #235781;
+            color: white;
+            border-radius: 9px;
+            min-height: 48px;
+            font-weight: 900;
+            padding: 0 22px;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -736,10 +757,9 @@ def render_login() -> None:
     shopify_src = image_data_uri("shopify_logo.png")
     forus_html = f'<img src="{forus_src}" alt="FORUS">' if forus_src else "<b>FORUS</b>"
     shopify_html = f'<img src="{shopify_src}" alt="Shopify">' if shopify_src else "<b>S</b>"
-    st.markdown(
-        f"""
-        <div class="login-shell">
-          <div class="login-card">
+    with st.container(border=True):
+        st.markdown(
+            f"""
             <div class="login-hero">
               <div class="login-brand-row">
                 <div class="login-logo">{forus_html}</div>
@@ -749,32 +769,26 @@ def render_login() -> None:
               <div class="login-title">Revenue Control Center</div>
               <div class="login-sub">Sistema de descuentos y cupones Shopify</div>
             </div>
-            <div class="login-body">
-        """,
-        unsafe_allow_html=True,
-    )
-    with st.form("login_form"):
-        email = st.text_input("Correo electronico", placeholder="hugo.camara@forus.pe")
-        password = st.text_input("Contrasena", type="password")
-        submitted = st.form_submit_button("Ingresar")
-    if submitted:
-        if valid_login(email, password):
-            st.session_state["authenticated"] = True
-            st.session_state["user_email"] = email.strip().lower()
-            st.rerun()
-        else:
-            st.error("Correo o contrasena incorrectos.")
-    if not get_auth_config():
-        st.warning("Configura [auth] en Secrets para habilitar usuarios.")
-    st.markdown(
-        """
-            <div class="login-foot">Sistema exclusivo para personal autorizado</div>
-            </div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+            """,
+            unsafe_allow_html=True,
+        )
+        with st.form("login_form"):
+            email = st.text_input("Correo electronico", placeholder="hugo.camara@forus.pe")
+            password = st.text_input("Contrasena", type="password")
+            submitted = st.form_submit_button("Ingresar")
+        if submitted:
+            if valid_login(email, password):
+                st.session_state["authenticated"] = True
+                st.session_state["user_email"] = email.strip().lower()
+                st.rerun()
+            else:
+                st.error("Correo o contrasena incorrectos.")
+        if not get_auth_config():
+            st.warning("Configura [auth] en Secrets para habilitar usuarios.")
+        st.markdown(
+            '<div class="login-foot">Sistema exclusivo para personal autorizado</div>',
+            unsafe_allow_html=True,
+        )
 
 
 def render_sidebar_logo() -> None:
@@ -803,7 +817,7 @@ def render_top_header(site_name: str) -> None:
         <div class="top-hero">
           <div>
             <div class="eyebrow">REVENUE DISCOUNT CENTER</div>
-            <h1>{site_name}<span class="hero-arrow">›</span>Matrixify</h1>
+            <h1>{site_name}<span class="hero-arrow">&rsaquo;</span>Matrixify</h1>
             <p>Genera cargas de descuentos desde COD MOD COL, cruzando BigQuery con el ultimo Matrixify del sitio.</p>
           </div>
           <div class="hero-right">
