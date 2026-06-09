@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import smtplib
 import tempfile
 from email.message import EmailMessage
 from pathlib import Path
+from urllib import request
+from urllib.error import HTTPError, URLError
 
 import pandas as pd
 import streamlit as st
@@ -20,22 +23,27 @@ from generar_matrixify_descuentos import (
 
 SITES = {
     "Rockford.pe": {
+        "shop_key": "rockford",
         "brands": ["COLUMBIA", "ROCKFORD", "PATAGONIA", "SOREL", "MOUNTAIN HARDWEAR"],
         "output": "matrixify_revenue_rockford.xlsx",
     },
     "Columbia.pe": {
+        "shop_key": "columbia",
         "brands": ["COLUMBIA"],
         "output": "matrixify_revenue_columbia.xlsx",
     },
     "Hushpuppies.pe": {
+        "shop_key": "hushpuppies",
         "brands": ["HUSH PUPPIES"],
         "output": "matrixify_revenue_hushpuppies.xlsx",
     },
     "Vans.pe": {
+        "shop_key": "vans",
         "brands": ["VANS"],
         "output": "matrixify_revenue_vans.xlsx",
     },
     "Supermall.pe": {
+        "shop_key": "supermall",
         "brands": ["COLUMBIA", "HUSH PUPPIES", "ROCKFORD", "PATAGONIA", "SOREL", "MOUNTAIN HARDWEAR", "VANS"],
         "output": "matrixify_revenue_supermall.xlsx",
     },
@@ -371,6 +379,96 @@ st.markdown(
         font-size: 14px;
         margin-bottom: 16px;
     }
+    .login-shell {
+        min-height: 92vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #142238;
+        margin: -30px calc(50% - 50vw) -42px;
+        padding: 28px;
+    }
+    .login-card {
+        width: min(560px, 94vw);
+        background: #ffffff;
+        border-radius: 20px;
+        overflow: hidden;
+        box-shadow: 0 28px 70px rgba(0, 0, 0, .24);
+    }
+    .login-hero {
+        background: linear-gradient(145deg, #2c73ff, #1654ef);
+        color: white;
+        padding: 40px 38px 44px;
+        text-align: center;
+    }
+    .login-brand-row {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 26px;
+        margin-bottom: 28px;
+    }
+    .login-logo, .login-shopify {
+        background: #ffffff;
+        border-radius: 10px;
+        padding: 10px 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 62px;
+    }
+    .login-logo img { max-width: 210px; max-height: 62px; object-fit: contain; }
+    .login-shopify img { width: 48px; height: 48px; object-fit: contain; }
+    .login-divider {
+        width: 1px;
+        height: 54px;
+        background: rgba(255,255,255,.52);
+    }
+    .login-title {
+        font-size: 34px;
+        font-weight: 950;
+        margin: 0 0 12px;
+        letter-spacing: 0;
+    }
+    .login-sub {
+        font-size: 18px;
+        font-weight: 800;
+        opacity: .95;
+    }
+    .login-body {
+        padding: 38px 40px 28px;
+    }
+    .login-foot {
+        text-align: center;
+        color: #62718a;
+        font-weight: 900;
+        padding: 12px 0 8px;
+    }
+    .coupon-hero {
+        background: linear-gradient(135deg, #1328a0, #266cff);
+        color: white;
+        border-radius: 28px;
+        padding: 34px;
+        margin-bottom: 24px;
+        box-shadow: 0 22px 48px rgba(22, 84, 239, .18);
+    }
+    .coupon-hero h2 {
+        margin: 0 0 10px;
+        font-size: 30px;
+        letter-spacing: 0;
+    }
+    .coupon-hero p {
+        margin: 0;
+        opacity: .9;
+    }
+    .coupon-card {
+        background: white;
+        border: 1px solid #d7e4f5;
+        border-radius: 24px;
+        padding: 26px;
+        margin: 18px 0;
+        box-shadow: 0 18px 42px rgba(16, 58, 120, 0.06);
+    }
     div[data-testid="stFileUploader"] {
         border: 1px dashed #9cc3ff;
         border-radius: 18px;
@@ -492,6 +590,111 @@ def bigquery_is_configured() -> bool:
     return enabled not in ("0", "false", "no", "off") and bool(config.get("table") or config.get("query"))
 
 
+def get_shopify_config(shop_key: str) -> dict:
+    try:
+        config = st.secrets.get("shopify", {})
+        if isinstance(config, dict):
+            return dict(config.get(shop_key, {}))
+    except Exception:
+        return {}
+    return {}
+
+
+def shopify_is_configured(shop_key: str) -> bool:
+    config = get_shopify_config(shop_key)
+    return bool(str(config.get("shop_domain", "")).strip() and str(config.get("access_token", "")).strip())
+
+
+def shopify_graphql(shop_key: str, query: str, variables: dict | None = None) -> dict:
+    config = get_shopify_config(shop_key)
+    shop_domain = str(config.get("shop_domain", "")).strip().replace("https://", "").replace("http://", "").strip("/")
+    token = str(config.get("access_token", "")).strip()
+    api_version = str(config.get("api_version", "2026-04")).strip()
+    if not shop_domain or not token:
+        raise RuntimeError("Faltan secrets de Shopify: shop_domain y access_token.")
+
+    url = f"https://{shop_domain}/admin/api/{api_version}/graphql.json"
+    payload = json.dumps({"query": query, "variables": variables or {}}).encode("utf-8")
+    req = request.Request(
+        url,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": token,
+        },
+        method="POST",
+    )
+    try:
+        with request.urlopen(req, timeout=45) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"Shopify respondio {exc.code}: {detail}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"No pude conectar con Shopify: {exc.reason}") from exc
+    if data.get("errors"):
+        raise RuntimeError(json.dumps(data["errors"], ensure_ascii=False))
+    return data.get("data", {})
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def load_shopify_segments(shop_key: str) -> list[dict]:
+    query = """
+    query CustomerSegments {
+      segments(first: 50) {
+        nodes {
+          id
+          name
+        }
+      }
+    }
+    """
+    try:
+        data = shopify_graphql(shop_key, query)
+        return data.get("segments", {}).get("nodes", [])
+    except Exception:
+        return []
+
+
+def build_iso_datetime(date_value, time_value) -> str:
+    return f"{date_value.isoformat()}T{time_value.strftime('%H:%M:%S')}-05:00"
+
+
+def create_shopify_coupon(shop_key: str, payload: dict) -> dict:
+    mutation = """
+    mutation CreateDiscountCode($basicCodeDiscount: DiscountCodeBasicInput!) {
+      discountCodeBasicCreate(basicCodeDiscount: $basicCodeDiscount) {
+        codeDiscountNode {
+          id
+          codeDiscount {
+            ... on DiscountCodeBasic {
+              title
+              startsAt
+              endsAt
+              codes(first: 10) {
+                nodes {
+                  code
+                }
+              }
+            }
+          }
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+    """
+    data = shopify_graphql(shop_key, mutation, {"basicCodeDiscount": payload})
+    result = data.get("discountCodeBasicCreate", {})
+    errors = result.get("userErrors") or []
+    if errors:
+        messages = "; ".join(error.get("message", "") for error in errors)
+        raise RuntimeError(messages or "Shopify no permitio crear el cupon.")
+    return result
+
+
 def image_data_uri(path: str) -> str:
     file_path = Path(path)
     if not file_path.exists():
@@ -500,6 +703,78 @@ def image_data_uri(path: str) -> str:
     mime = "jpeg" if suffix in ("jpg", "jpeg") else "png"
     encoded = base64.b64encode(file_path.read_bytes()).decode("ascii")
     return f"data:image/{mime};base64,{encoded}"
+
+
+def get_auth_config() -> dict:
+    try:
+        return dict(st.secrets.get("auth", {}))
+    except Exception:
+        return {}
+
+
+def valid_login(email: str, password: str) -> bool:
+    config = get_auth_config()
+    users = dict(config.get("users", {})) if isinstance(config.get("users", {}), dict) else {}
+    if users:
+        return users.get(email.strip().lower()) == password
+    allowed = [str(value).strip().lower() for value in config.get("allowed_emails", [])]
+    shared_password = str(config.get("password", ""))
+    return bool(email.strip().lower() in allowed and password == shared_password)
+
+
+def render_login() -> None:
+    st.markdown(
+        """
+        <style>
+        [data-testid="stSidebar"] { display: none !important; }
+        .block-container { max-width: none; padding: 0; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    forus_src = image_data_uri("forus_logo.png")
+    shopify_src = image_data_uri("shopify_logo.png")
+    forus_html = f'<img src="{forus_src}" alt="FORUS">' if forus_src else "<b>FORUS</b>"
+    shopify_html = f'<img src="{shopify_src}" alt="Shopify">' if shopify_src else "<b>S</b>"
+    st.markdown(
+        f"""
+        <div class="login-shell">
+          <div class="login-card">
+            <div class="login-hero">
+              <div class="login-brand-row">
+                <div class="login-logo">{forus_html}</div>
+                <div class="login-divider"></div>
+                <div class="login-shopify">{shopify_html}</div>
+              </div>
+              <div class="login-title">Revenue Control Center</div>
+              <div class="login-sub">Sistema de descuentos y cupones Shopify</div>
+            </div>
+            <div class="login-body">
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.form("login_form"):
+        email = st.text_input("Correo electronico", placeholder="hugo.camara@forus.pe")
+        password = st.text_input("Contrasena", type="password")
+        submitted = st.form_submit_button("Ingresar")
+    if submitted:
+        if valid_login(email, password):
+            st.session_state["authenticated"] = True
+            st.session_state["user_email"] = email.strip().lower()
+            st.rerun()
+        else:
+            st.error("Correo o contrasena incorrectos.")
+    if not get_auth_config():
+        st.warning("Configura [auth] en Secrets para habilitar usuarios.")
+    st.markdown(
+        """
+            <div class="login-foot">Sistema exclusivo para personal autorizado</div>
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_sidebar_logo() -> None:
@@ -721,9 +996,22 @@ def load_product_lookup_from_bigquery(
     return {"by_id": by_id, "by_modcol": by_modcol}
 
 
+if not st.session_state.get("authenticated"):
+    render_login()
+    st.stop()
+
+
 render_sidebar_logo()
 
 with st.sidebar:
+    user_email = st.session_state.get("user_email", "")
+    if user_email:
+        st.caption(f"Sesion: {user_email}")
+    module = st.radio(
+        "Modulo",
+        ["Carga de descuentos", "Generar cupones"],
+        horizontal=False,
+    )
     st.markdown('<div class="sidebar-label">Sitio destino</div>', unsafe_allow_html=True)
     site_name = st.selectbox("Sitio destino", list(SITES.keys()))
     site = SITES[site_name]
@@ -755,6 +1043,106 @@ with st.sidebar:
         """,
         unsafe_allow_html=True,
     )
+
+
+if module == "Generar cupones":
+    render_top_header(site_name)
+    shop_key = site["shop_key"]
+    shop_ready = shopify_is_configured(shop_key)
+    st.markdown(
+        """
+        <div class="coupon-hero">
+          <h2>Generador de cupones Shopify</h2>
+          <p>Crea cupones directamente en Shopify con fechas, limites, minimo de compra y segmentos de clientes.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if not shop_ready:
+        st.error(
+            "Falta configurar Shopify API para este sitio. Agrega shop_domain y access_token en Secrets."
+        )
+    else:
+        st.success("Shopify API configurado para este sitio.")
+
+    segments = load_shopify_segments(shop_key) if shop_ready else []
+    segment_options = {"Todos los clientes": ""}
+    segment_options.update({segment["name"]: segment["id"] for segment in segments if segment.get("name") and segment.get("id")})
+
+    with st.form("coupon_form"):
+        st.markdown('<div class="coupon-card">', unsafe_allow_html=True)
+        col_a, col_b = st.columns(2)
+        with col_a:
+            coupon_title = st.text_input("Nombre interno del descuento", value=f"{site_name} Campana")
+            coupon_code = st.text_input("Codigo del cupon", placeholder="CLB40")
+            discount_type = st.selectbox("Tipo de descuento", ["Porcentaje", "Monto fijo"])
+            discount_value = st.number_input("Valor descuento", min_value=0.0, value=40.0, step=1.0)
+            minimum_subtotal = st.number_input("Compra minima", min_value=0.0, value=0.0, step=10.0)
+        with col_b:
+            starts_date = st.date_input("Fecha inicio")
+            starts_time = st.time_input("Hora inicio")
+            ends_date = st.date_input("Fecha fin")
+            ends_time = st.time_input("Hora fin")
+            usage_limit = st.number_input("Limite total de usos (0 = sin limite)", min_value=0, value=0, step=1)
+            once_per_customer = st.checkbox("Una vez por cliente", value=True)
+        customer_segment_name = st.selectbox("Grupo / segmento de clientes", list(segment_options.keys()))
+        applies_to = st.selectbox("Aplica a", ["Todos los productos"])
+        st.markdown("</div>", unsafe_allow_html=True)
+        create_coupon = st.form_submit_button("Crear cupon en Shopify", type="primary")
+
+    if create_coupon:
+        if not shop_ready:
+            st.stop()
+        if not coupon_code.strip():
+            st.error("Ingresa el codigo del cupon.")
+            st.stop()
+        customer_context = {"all": True}
+        selected_segment_id = segment_options.get(customer_segment_name)
+        if selected_segment_id:
+            customer_context = {"segments": {"add": [selected_segment_id]}}
+
+        discount_payload = {
+            "title": coupon_title.strip() or coupon_code.strip(),
+            "code": coupon_code.strip().upper(),
+            "startsAt": build_iso_datetime(starts_date, starts_time),
+            "endsAt": build_iso_datetime(ends_date, ends_time),
+            "appliesOncePerCustomer": once_per_customer,
+            "customerSelection": customer_context,
+            "customerGets": {
+                "items": {"all": True},
+                "value": (
+                    {"percentage": discount_value / 100}
+                    if discount_type == "Porcentaje"
+                    else {"discountAmount": {"amount": str(round(discount_value, 2)), "appliesOnEachItem": False}}
+                ),
+            },
+        }
+        if usage_limit > 0:
+            discount_payload["usageLimit"] = int(usage_limit)
+        if minimum_subtotal > 0:
+            discount_payload["minimumRequirement"] = {
+                "subtotal": {"greaterThanOrEqualToSubtotal": str(round(minimum_subtotal, 2))}
+            }
+        try:
+            result = create_shopify_coupon(shop_key, discount_payload)
+            node = result.get("codeDiscountNode", {})
+            st.success(f"Cupon creado correctamente en Shopify: {coupon_code.strip().upper()}")
+            st.json(node)
+        except Exception as exc:
+            st.error(f"No pude crear el cupon en Shopify: {exc}")
+
+    with st.expander("Secrets necesarios para Shopify"):
+        st.code(
+            f"""
+[shopify.{shop_key}]
+shop_domain = "{shop_key}.myshopify.com"
+access_token = "shpat_xxxxxxxxxxxxxxxxx"
+api_version = "2026-04"
+            """.strip(),
+            language="toml",
+        )
+        st.caption("El token debe tener permisos write_discounts y permisos de lectura para segmentos/clientes si usaras grupos.")
+    st.stop()
 
 
 render_top_header(site_name)
