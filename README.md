@@ -4,10 +4,10 @@ Aplicacion Streamlit rapida para generar cargas Matrixify de descuentos por camp
 
 ## Flujo
 
-1. Elegir sitio destino.
-2. Elegir marcas a afectar.
-3. Subir Revenue/input comercial.
-4. Subir ultimo catalogo Matrixify del mismo sitio.
+1. Iniciar sesion.
+2. Elegir modulo: `Carga de descuentos` o `Generar cupones`.
+3. Elegir sitio destino.
+4. Para descuentos, subir Revenue/input comercial y ultimo catalogo Matrixify.
 5. La app cruza `COD MOD COL` contra BigQuery para traer SKUs y marca.
 6. Generar y descargar el Excel.
 
@@ -38,8 +38,11 @@ Reglas:
 - Las otras marcas quedan en `No afectados por marca`.
 - Si un `COD MOD COL` no existe en BigQuery, la app se detiene para corregir el input.
 - Si un producto no existe en Matrixify queda en `No encontrados`.
+- Cada hoja devuelve todo el ultimo Matrixify cargado, con la misma cantidad de filas.
+- Solo se modifican los modelo-color indicados por el Revenue y validados por marca.
 - `Variant Compare At Price` solo se llena cuando hay descuento real.
-- Si el descuento es 0% o vacio, se conserva precio original y compare queda vacio.
+- Si el descuento del Revenue es 0%, se limpia el descuento de ese modelo-color: precio original y compare vacio.
+- Los productos que no vienen en Revenue quedan exactamente como estaban en el Matrixify cargado.
 - `Product ID`, `Variant ID` e `Inventory Item ID` se conservan desde el ultimo Matrixify cargado.
 
 ## Validaciones
@@ -55,6 +58,23 @@ Reglas:
 ```powershell
 pip install -r requirements.txt
 streamlit run app.py
+```
+
+## Login
+
+Configura usuarios en `Secrets`:
+
+```toml
+[auth.users]
+"hugo.camara@forus.pe" = "CONTRASENA_SEGURA"
+```
+
+Tambien puedes usar una clave compartida:
+
+```toml
+[auth]
+allowed_emails = ["hugo.camara@forus.pe"]
+password = "CONTRASENA_SEGURA"
 ```
 
 ## Aviso por correo
@@ -92,6 +112,30 @@ id_column = "CODINT_MA"
 modcol_column = "COD MOD COL"
 brand_column = "MARCA_MA"
 timeout_seconds = "45"
+```
+
+## Shopify API para cupones
+
+Para crear cupones directamente en Shopify, configura un Custom App por tienda con permisos:
+
+```text
+write_discounts
+read_discounts
+read_customers / acceso a segmentos si se usaran grupos
+```
+
+Secrets por sitio:
+
+```toml
+[shopify.columbia]
+shop_domain = "columbiape.myshopify.com"
+access_token = "shpat_xxxxxxxxxxxxxxxxx"
+api_version = "2026-04"
+
+[shopify.rockford]
+shop_domain = "rockfordpe.myshopify.com"
+access_token = "shpat_xxxxxxxxxxxxxxxxx"
+api_version = "2026-04"
 ```
 
 Si usas una cuenta de servicio:
