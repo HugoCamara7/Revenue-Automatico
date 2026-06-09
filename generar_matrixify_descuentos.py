@@ -460,7 +460,7 @@ def build_discount_workbook(
 
             out_df = matrixify_df.copy()
             discount_series = out_df[group_col].map(discounts_by_group).fillna(0)
-            affected_mask = out_df[group_col].isin(scope_groups)
+            affected_mask = out_df[group_col].isin(discounts_by_group.keys())
             base_price = out_df["Variant Compare At Price"].map(to_money)
             current_price = out_df["Variant Price"].map(to_money)
             original_price = base_price.where(base_price.notna(), current_price)
