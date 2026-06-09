@@ -714,12 +714,24 @@ def get_auth_config() -> dict:
 
 def valid_login(email: str, password: str) -> bool:
     config = get_auth_config()
+    login_email = email.strip().lower()
+    login_password = str(password).strip()
+    user_list = config.get("users_list", [])
+    if isinstance(user_list, list):
+        for user in user_list:
+            if not isinstance(user, dict):
+                continue
+            stored_email = str(user.get("email", "")).strip().lower()
+            stored_password = str(user.get("password", "")).strip()
+            if stored_email == login_email and stored_password == login_password:
+                return True
     users = dict(config.get("users", {})) if isinstance(config.get("users", {}), dict) else {}
     if users:
-        return users.get(email.strip().lower()) == password
+        normalized_users = {str(key).strip().lower(): str(value).strip() for key, value in users.items()}
+        return normalized_users.get(login_email) == login_password
     allowed = [str(value).strip().lower() for value in config.get("allowed_emails", [])]
-    shared_password = str(config.get("password", ""))
-    return bool(email.strip().lower() in allowed and password == shared_password)
+    shared_password = str(config.get("password", "")).strip()
+    return bool(login_email in allowed and login_password == shared_password)
 
 
 def render_login() -> None:
