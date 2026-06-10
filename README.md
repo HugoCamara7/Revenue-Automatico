@@ -132,14 +132,18 @@ read_customers / acceso a segmentos si se usaran grupos
 Secrets por sitio:
 
 ```toml
-[shopify.columbia]
+[shopify_sites.columbia]
 shop_domain = "columbiape.myshopify.com"
-access_token = "shpat_xxxxxxxxxxxxxxxxx"
+client_id = ""
+client_secret = ""
+admin_access_token = "shpat_xxxxxxxxxxxxxxxxx"
 api_version = "2026-04"
 
-[shopify.rockford]
+[shopify_sites.rockford]
 shop_domain = "rockfordpe.myshopify.com"
-access_token = "shpat_xxxxxxxxxxxxxxxxx"
+client_id = ""
+client_secret = ""
+admin_access_token = "shpat_xxxxxxxxxxxxxxxxx"
 api_version = "2026-04"
 ```
 
