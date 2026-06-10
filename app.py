@@ -592,9 +592,14 @@ def bigquery_is_configured() -> bool:
 
 def get_shopify_config(shop_key: str) -> dict:
     try:
-        config = st.secrets.get("shopify", {})
-        if isinstance(config, dict):
-            return dict(config.get(shop_key, {}))
+        for section in ("shopify_sites", "shopify"):
+            config = st.secrets.get(section, {})
+            if isinstance(config, dict):
+                site_config = config.get(shop_key, {})
+                if isinstance(site_config, dict) and site_config:
+                    return dict(site_config)
+                if config.get("shop_domain") or config.get("access_token"):
+                    return dict(config)
     except Exception:
         return {}
     return {}
@@ -602,16 +607,17 @@ def get_shopify_config(shop_key: str) -> dict:
 
 def shopify_is_configured(shop_key: str) -> bool:
     config = get_shopify_config(shop_key)
-    return bool(str(config.get("shop_domain", "")).strip() and str(config.get("access_token", "")).strip())
+    token = config.get("access_token") or config.get("admin_access_token")
+    return bool(str(config.get("shop_domain", "")).strip() and str(token or "").strip())
 
 
 def shopify_graphql(shop_key: str, query: str, variables: dict | None = None) -> dict:
     config = get_shopify_config(shop_key)
     shop_domain = str(config.get("shop_domain", "")).strip().replace("https://", "").replace("http://", "").strip("/")
-    token = str(config.get("access_token", "")).strip()
+    token = str(config.get("access_token") or config.get("admin_access_token") or "").strip()
     api_version = str(config.get("api_version", "2026-04")).strip()
     if not shop_domain or not token:
-        raise RuntimeError("Faltan secrets de Shopify: shop_domain y access_token.")
+        raise RuntimeError(f"Faltan secrets de Shopify para [{shop_key}]: shop_domain y admin_access_token.")
 
     url = f"https://{shop_domain}/admin/api/{api_version}/graphql.json"
     payload = json.dumps({"query": query, "variables": variables or {}}).encode("utf-8")
@@ -740,18 +746,34 @@ def render_login() -> None:
         <style>
         [data-testid="stSidebar"] { display: none !important; }
         .stApp { background: #142238; }
-        .block-container { max-width: 640px; padding-top: 28px; padding-bottom: 36px; }
+        .block-container { max-width: 448px; padding-top: 22px; padding-bottom: 30px; }
         div[data-testid="stVerticalBlockBorderWrapper"] {
-            background: #ffffff;
-            border-radius: 20px;
-            overflow: hidden;
-            box-shadow: 0 28px 70px rgba(0, 0, 0, .24);
+            background: #ffffff !important;
+            border: 0 !important;
+            border-radius: 16px !important;
+            overflow: hidden !important;
+            box-shadow: 0 28px 70px rgba(0, 0, 0, .24) !important;
+            padding: 0 !important;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"] > div,
+        div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stVerticalBlock"] {
+            background: #ffffff !important;
+        }
+        .login-hero {
+            margin: -1rem -1rem 0 !important;
+            border-radius: 16px 16px 0 0;
+            padding: 30px 28px 34px;
         }
         div[data-testid="stForm"] {
+            background: #ffffff !important;
             border: 1px solid #d7dce5;
             border-radius: 10px;
-            padding: 22px;
-            margin: 26px 38px 10px;
+            padding: 18px;
+            margin: 26px 18px 10px;
+        }
+        div[data-testid="stForm"] label,
+        div[data-testid="stForm"] p {
+            color: #031b4e !important;
         }
         div[data-testid="stForm"] button {
             background: #235781;
@@ -760,6 +782,9 @@ def render_login() -> None:
             min-height: 48px;
             font-weight: 900;
             padding: 0 22px;
+        }
+        .login-foot {
+            margin: 26px 0 24px;
         }
         </style>
         """,
@@ -1086,7 +1111,8 @@ if module == "Generar cupones":
     )
     if not shop_ready:
         st.error(
-            "Falta configurar Shopify API para este sitio. Agrega shop_domain y access_token en Secrets."
+            f"Falta configurar Shopify API para {site_name}. "
+            f"Agrega shop_domain y admin_access_token en [shopify_sites.{shop_key}] dentro de Secrets."
         )
     else:
         st.success("Shopify API configurado para este sitio.")
@@ -1160,9 +1186,11 @@ if module == "Generar cupones":
     with st.expander("Secrets necesarios para Shopify"):
         st.code(
             f"""
-[shopify.{shop_key}]
+[shopify_sites.{shop_key}]
 shop_domain = "{shop_key}.myshopify.com"
-access_token = "shpat_xxxxxxxxxxxxxxxxx"
+client_id = ""
+client_secret = ""
+admin_access_token = "shpat_xxxxxxxxxxxxxxxxx"
 api_version = "2026-04"
             """.strip(),
             language="toml",
