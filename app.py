@@ -1219,7 +1219,7 @@ if module == "Generar cupones":
         customer_context = {"all": True}
         selected_segment_id = segment_options.get(customer_segment_name)
         if selected_segment_id:
-            customer_context = {"segments": {"add": [selected_segment_id]}}
+            customer_context = {"customerSegments": {"add": [selected_segment_id]}}
 
         discount_payload = {
             "title": coupon_title.strip() or coupon_code.strip(),
