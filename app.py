@@ -591,18 +591,35 @@ def bigquery_is_configured() -> bool:
 
 
 def get_shopify_config(shop_key: str) -> dict:
+    def as_plain_dict(value) -> dict:
+        if not value:
+            return {}
+        try:
+            return dict(value)
+        except Exception:
+            return {}
+
     try:
         for section in ("shopify_sites", "shopify"):
-            config = st.secrets.get(section, {})
-            if isinstance(config, dict):
-                site_config = config.get(shop_key, {})
-                if isinstance(site_config, dict) and site_config:
-                    return dict(site_config)
-                if config.get("shop_domain") or config.get("access_token"):
-                    return dict(config)
+            config = as_plain_dict(st.secrets.get(section, {}))
+            site_config = as_plain_dict(config.get(shop_key, {}))
+            if site_config:
+                return site_config
+            if config.get("shop_domain") or config.get("access_token") or config.get("admin_access_token"):
+                return config
     except Exception:
         return {}
     return {}
+
+
+def shopify_config_status(shop_key: str) -> dict:
+    config = get_shopify_config(shop_key)
+    token = config.get("access_token") or config.get("admin_access_token")
+    return {
+        "shop_domain": bool(str(config.get("shop_domain", "")).strip()),
+        "admin_access_token": bool(str(token or "").strip()),
+        "api_version": str(config.get("api_version", "2026-04")).strip(),
+    }
 
 
 def shopify_is_configured(shop_key: str) -> bool:
@@ -746,7 +763,7 @@ def render_login() -> None:
         <style>
         [data-testid="stSidebar"] { display: none !important; }
         .stApp { background: #142238; }
-        .block-container { max-width: 448px; padding-top: 22px; padding-bottom: 30px; }
+        .block-container { max-width: 560px; padding-top: 22px; padding-bottom: 30px; }
         div[data-testid="stVerticalBlockBorderWrapper"] {
             background: #ffffff !important;
             border: 0 !important;
@@ -762,14 +779,57 @@ def render_login() -> None:
         .login-hero {
             margin: -1rem -1rem 0 !important;
             border-radius: 16px 16px 0 0;
-            padding: 30px 28px 34px;
+            padding: 34px 34px 44px;
+        }
+        .login-brand-row {
+            gap: 24px;
+            margin-bottom: 26px;
+        }
+        .login-logo {
+            width: 224px;
+            min-height: 72px;
+            padding: 8px 16px;
+        }
+        .login-logo img {
+            max-width: 200px;
+            max-height: 58px;
+        }
+        .login-shopify {
+            width: 66px;
+            height: 66px;
+            min-height: 66px;
+            padding: 8px;
+        }
+        .login-shopify img {
+            width: 50px;
+            height: 50px;
+        }
+        .shopify-fallback {
+            width: 50px;
+            height: 50px;
+            border-radius: 10px;
+            background: #8ec63f;
+            color: white;
+            font-size: 34px;
+            font-weight: 950;
+            display: grid;
+            place-items: center;
+            font-family: Arial, sans-serif;
+        }
+        .login-title {
+            font-size: 34px;
+            line-height: 1.1;
+            white-space: nowrap;
+        }
+        .login-sub {
+            font-size: 17px;
         }
         div[data-testid="stForm"] {
             background: #ffffff !important;
             border: 1px solid #d7dce5;
             border-radius: 10px;
             padding: 18px;
-            margin: 26px 18px 10px;
+            margin: 36px 38px 10px;
         }
         div[data-testid="stForm"] label,
         div[data-testid="stForm"] p {
@@ -784,7 +844,8 @@ def render_login() -> None:
             padding: 0 22px;
         }
         .login-foot {
-            margin: 26px 0 24px;
+            margin: 34px 0 28px;
+            color: #62718a !important;
         }
         </style>
         """,
@@ -793,7 +854,7 @@ def render_login() -> None:
     forus_src = image_data_uri("forus_logo.png")
     shopify_src = image_data_uri("shopify_logo.png")
     forus_html = f'<img src="{forus_src}" alt="FORUS">' if forus_src else "<b>FORUS</b>"
-    shopify_html = f'<img src="{shopify_src}" alt="Shopify">' if shopify_src else "<b>S</b>"
+    shopify_html = f'<img src="{shopify_src}" alt="Shopify">' if shopify_src else '<div class="shopify-fallback">S</div>'
     with st.container(border=True):
         st.markdown(
             f"""
@@ -1113,6 +1174,13 @@ if module == "Generar cupones":
         st.error(
             f"Falta configurar Shopify API para {site_name}. "
             f"Agrega shop_domain y admin_access_token en [shopify_sites.{shop_key}] dentro de Secrets."
+        )
+        status = shopify_config_status(shop_key)
+        st.info(
+            f"Diagnostico seguro para [shopify_sites.{shop_key}]: "
+            f"shop_domain={'OK' if status['shop_domain'] else 'FALTA'} | "
+            f"admin_access_token={'OK' if status['admin_access_token'] else 'FALTA'} | "
+            f"api_version={status['api_version']}"
         )
     else:
         st.success("Shopify API configurado para este sitio.")
