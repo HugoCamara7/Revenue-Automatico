@@ -13,12 +13,16 @@ from urllib.error import HTTPError, URLError
 import pandas as pd
 import streamlit as st
 
+from coupon_config import COUPON_SHOPIFY_SITES, QUICK_TEMPLATES
+from coupon_parser import default_coupon_data, parse_coupon_text
+from coupon_validation import validate_coupon_data
 from generar_matrixify_descuentos import (
     build_discount_workbook,
     extract_revenue_lookup_values,
     normalize_key,
     read_matrixify,
 )
+from shopify_coupon_service import create_coupon_for_multiple_sites
 
 
 SITES = {
@@ -1159,97 +1163,120 @@ with st.sidebar:
 
 if module == "Generar cupones":
     render_top_header(site_name)
-    shop_key = site["shop_key"]
-    shop_ready = shopify_is_configured(shop_key)
     st.markdown(
         """
         <div class="coupon-hero">
-          <h2>Generador de cupones Shopify</h2>
-          <p>Crea cupones directamente en Shopify con fechas, limites, minimo de compra y segmentos de clientes.</p>
+          <h2>Smart Coupon Builder</h2>
+          <p>Crea cupones Shopify para multiples marcas desde una sola pantalla.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    if not shop_ready:
-        st.error(
-            f"Falta configurar Shopify API para {site_name}. "
-            f"Agrega shop_domain y admin_access_token en [shopify_sites.{shop_key}] dentro de Secrets."
-        )
-        status = shopify_config_status(shop_key)
-        st.info(
-            f"Diagnostico seguro para [shopify_sites.{shop_key}]: "
-            f"shop_domain={'OK' if status['shop_domain'] else 'FALTA'} | "
-            f"admin_access_token={'OK' if status['admin_access_token'] else 'FALTA'} | "
-            f"api_version={status['api_version']}"
-        )
-    else:
-        st.success("Shopify API configurado para este sitio.")
 
-    segments = load_shopify_segments(shop_key) if shop_ready else []
-    segment_options = {"Todos los clientes": ""}
-    segment_options.update({segment["name"]: segment["id"] for segment in segments if segment.get("name") and segment.get("id")})
+    if "coupon_data" not in st.session_state:
+        st.session_state["coupon_data"] = default_coupon_data()
+    if "coupon_results" not in st.session_state:
+        st.session_state["coupon_results"] = []
 
-    with st.form("coupon_form"):
+    st.markdown('<div class="coupon-card">', unsafe_allow_html=True)
+    promotion_text = st.text_area(
+        "Describe la promocion",
+        value=st.session_state.get("promotion_text", ""),
+        placeholder="Crear cupon BBVA40 con 40% de descuento para todos los sitios, valido del 15 al 30 de junio, una vez por cliente y compra minima S/299.",
+        height=120,
+        key="promotion_text",
+    )
+    chip_cols = st.columns(len(QUICK_TEMPLATES))
+    for column, (chip, template) in zip(chip_cols, QUICK_TEMPLATES.items()):
+        if column.button(chip, use_container_width=True):
+            st.session_state["promotion_text"] = template
+            st.rerun()
+    if st.button("Interpretar promocion", type="primary", use_container_width=True):
+        with st.spinner("Interpretando promocion..."):
+            st.session_state["coupon_data"] = parse_coupon_text(promotion_text)
+            st.session_state["coupon_results"] = []
+        st.success("Promocion interpretada. Puedes editar cualquier campo antes de crear.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    data = st.session_state["coupon_data"].copy()
+    st.markdown('<div class="coupon-card">', unsafe_allow_html=True)
+    left, right = st.columns(2)
+    with left:
+        data["nombreInterno"] = st.text_input("Nombre interno", value=data["nombreInterno"])
+        data["codigoCupon"] = st.text_input("Codigo cupon", value=data["codigoCupon"])
+        data["tipoDescuento"] = st.selectbox(
+            "Tipo descuento",
+            ["Porcentaje", "Monto fijo"],
+            index=["Porcentaje", "Monto fijo"].index(data.get("tipoDescuento", "Porcentaje")),
+        )
+        data["valorDescuento"] = st.number_input("Valor descuento", min_value=0.0, value=float(data["valorDescuento"]), step=1.0)
+        data["compraMinima"] = st.number_input("Compra minima", min_value=0.0, value=float(data["compraMinima"] or 0), step=10.0)
+    with right:
+        data["fechaInicio"] = st.text_input("Fecha inicio", value=data["fechaInicio"], help="Formato YYYY-MM-DD")
+        data["horaInicio"] = st.text_input("Hora inicio", value=data["horaInicio"], help="Formato HH:MM")
+        data["fechaFin"] = st.text_input("Fecha fin", value=data["fechaFin"], help="Formato YYYY-MM-DD")
+        data["horaFin"] = st.text_input("Hora fin", value=data["horaFin"], help="Formato HH:MM")
+        data["limiteTotalUsos"] = st.number_input("Limite total de usos (0 = sin limite)", min_value=0, value=int(data["limiteTotalUsos"] or 0), step=1)
+        data["unaVezPorCliente"] = st.checkbox("Una vez por cliente", value=bool(data["unaVezPorCliente"]))
+
+    all_site_ids = [site["id"] for site in COUPON_SHOPIFY_SITES if site["enabled"]]
+    site_options = {site["name"]: site["id"] for site in COUPON_SHOPIFY_SITES if site["enabled"]}
+    selected_names = [name for name, site_id in site_options.items() if site_id in data["selectedSites"]]
+    selected_names = st.multiselect("Sitios Shopify", list(site_options), default=selected_names)
+    data["selectedSites"] = [site_options[name] for name in selected_names]
+    site_actions = st.columns([1, 1, 3])
+    if site_actions[0].button("Seleccionar todos"):
+        data["selectedSites"] = all_site_ids
+        st.session_state["coupon_data"] = data
+        st.rerun()
+    if site_actions[1].button("Limpiar"):
+        data["selectedSites"] = []
+        st.session_state["coupon_data"] = data
+        st.rerun()
+    st.caption(f"{len(data['selectedSites'])} sitios seleccionados")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.session_state["coupon_data"] = data
+    preview_rows = []
+    for site in COUPON_SHOPIFY_SITES:
+        if site["id"] in data["selectedSites"]:
+            preview_rows.append(
+                {
+                    "Sitio": site["name"],
+                    "Codigo": data["codigoCupon"],
+                    "Descuento": f"{data['valorDescuento']:.0f}%" if data["tipoDescuento"] == "Porcentaje" else f"S/ {data['valorDescuento']:.2f}",
+                    "Vigencia": f"{data['fechaInicio']} {data['horaInicio']} - {data['fechaFin']} {data['horaFin']}",
+                    "Estado": "Listo",
+                }
+            )
+    if preview_rows:
         st.markdown('<div class="coupon-card">', unsafe_allow_html=True)
-        col_a, col_b = st.columns(2)
-        with col_a:
-            coupon_title = st.text_input("Nombre interno del descuento", value=f"{site_name} Campana")
-            coupon_code = st.text_input("Codigo del cupon", placeholder="CLB40")
-            discount_type = st.selectbox("Tipo de descuento", ["Porcentaje", "Monto fijo"])
-            discount_value = st.number_input("Valor descuento", min_value=0.0, value=40.0, step=1.0)
-            minimum_subtotal = st.number_input("Compra minima", min_value=0.0, value=0.0, step=10.0)
-        with col_b:
-            starts_date = st.date_input("Fecha inicio")
-            starts_time = st.time_input("Hora inicio")
-            ends_date = st.date_input("Fecha fin")
-            ends_time = st.time_input("Hora fin")
-            usage_limit = st.number_input("Limite total de usos (0 = sin limite)", min_value=0, value=0, step=1)
-            once_per_customer = st.checkbox("Una vez por cliente", value=True)
-        customer_segment_name = st.selectbox("Grupo / segmento de clientes", list(segment_options.keys()))
-        applies_to = st.selectbox("Aplica a", ["Todos los productos"])
+        st.write("Vista previa por sitio")
+        st.dataframe(pd.DataFrame(preview_rows), hide_index=True, use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
-        create_coupon = st.form_submit_button("Crear cupon en Shopify", type="primary")
 
-    if create_coupon:
-        if not shop_ready:
-            st.stop()
-        if not coupon_code.strip():
-            st.error("Ingresa el codigo del cupon.")
-            st.stop()
-        customer_context = {"all": True}
-        selected_segment_id = segment_options.get(customer_segment_name)
-        if selected_segment_id:
-            customer_context = {"customerSegments": {"add": [selected_segment_id]}}
+    errors = validate_coupon_data(data)
+    for error in errors:
+        st.error(error)
 
-        discount_payload = {
-            "title": coupon_title.strip() or coupon_code.strip(),
-            "code": coupon_code.strip().upper(),
-            "startsAt": build_iso_datetime(starts_date, starts_time),
-            "endsAt": build_iso_datetime(ends_date, ends_time),
-            "appliesOncePerCustomer": once_per_customer,
-            "customerSelection": customer_context,
-            "customerGets": {
-                "items": {"all": True},
-                "value": (
-                    {"percentage": discount_value / 100}
-                    if discount_type == "Porcentaje"
-                    else {"discountAmount": {"amount": str(round(discount_value, 2)), "appliesOnEachItem": False}}
-                ),
-            },
-        }
-        if usage_limit > 0:
-            discount_payload["usageLimit"] = int(usage_limit)
-        if minimum_subtotal > 0:
-            discount_payload["minimumRequirement"] = {
-                "subtotal": {"greaterThanOrEqualToSubtotal": str(round(minimum_subtotal, 2))}
-            }
-        try:
-            result = create_shopify_coupon(shop_key, discount_payload)
-            node = result.get("codeDiscountNode", {})
-            st.success(f"Cupon creado correctamente en Shopify: {coupon_code.strip().upper()}")
-            st.json(node)
-        except Exception as exc:
-            st.error(f"No pude crear el cupon en Shopify: {exc}")
+    button_label = f"Crear {len(data['selectedSites'])} cupon" if len(data["selectedSites"]) == 1 else f"Crear {len(data['selectedSites'])} cupones"
+    create_disabled = bool(errors)
+    if st.button(button_label, type="primary", use_container_width=True, disabled=create_disabled):
+        with st.status("Creando cupones en Shopify...", expanded=True) as status:
+            results = create_coupon_for_multiple_sites(
+                data,
+                segment_ids_by_site={},
+                shopify_create=create_shopify_coupon,
+                configured_checker=shopify_is_configured,
+            )
+            st.session_state["coupon_results"] = results
+            status.update(label="Proceso terminado.", state="complete")
+
+    if st.session_state["coupon_results"]:
+        st.markdown('<div class="coupon-card">', unsafe_allow_html=True)
+        st.write("Resultados")
+        st.dataframe(pd.DataFrame(st.session_state["coupon_results"]), hide_index=True, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     with st.expander("Secrets necesarios para Shopify"):
         st.code(

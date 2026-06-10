@@ -3,3 +3,4 @@ openpyxl>=3.1.0
 streamlit>=1.35.0
 google-cloud-bigquery>=3.25.0
 google-auth>=2.30.0
+pytest>=8.2.0
