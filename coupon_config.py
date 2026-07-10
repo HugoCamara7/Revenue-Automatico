@@ -2,6 +2,9 @@ COUPON_SHOPIFY_SITES = [
     {"id": "columbia", "name": "Columbia.pe", "shop_key": "columbia", "enabled": True},
     {"id": "rockford", "name": "Rockford.pe", "shop_key": "rockford", "enabled": True},
     {"id": "hushpuppies", "name": "Hushpuppies.pe", "shop_key": "hushpuppies", "enabled": True},
+    {"id": "bsoul", "name": "Bsoul.pe", "shop_key": "bsoul", "enabled": True},
+    {"id": "rkslife", "name": "RKS Life.pe", "shop_key": "rkslife", "enabled": True},
+    {"id": "keds", "name": "Keds.pe", "shop_key": "keds", "enabled": True},
     {"id": "vans", "name": "Vans.pe", "shop_key": "vans", "enabled": True},
     {"id": "supermall", "name": "Supermall.pe", "shop_key": "supermall", "enabled": True},
 ]

@@ -16,6 +16,11 @@ def build_shopify_discount_payload(data: dict, customer_segment_id: str = "") ->
         "startsAt": build_iso_datetime(data["fechaInicio"], data["horaInicio"]),
         "endsAt": build_iso_datetime(data["fechaFin"], data["horaFin"]),
         "appliesOncePerCustomer": bool(data.get("unaVezPorCliente")),
+        "combinesWith": {
+            "productDiscounts": bool(data.get("combinaProducto")),
+            "orderDiscounts": bool(data.get("combinaPedido")),
+            "shippingDiscounts": bool(data.get("combinaEnvio")),
+        },
         "customerSelection": customer_context,
         "customerGets": {
             "items": {"all": True},
@@ -39,19 +44,26 @@ def create_coupon_for_multiple_sites(
 ) -> list[dict]:
     results = []
     selected_sites = set(data.get("selectedSites", []))
+    codes = data.get("couponCodes") or [data.get("codigoCupon", "")]
+    codes = [str(code).strip().upper() for code in codes if str(code).strip()]
     for site in COUPON_SHOPIFY_SITES:
         if site["id"] not in selected_sites:
             continue
         if not configured_checker(site["shop_key"]):
-            results.append(result_row(site, data, "error", "Falta configurar Shopify API para este sitio."))
+            for code in codes:
+                results.append(result_row(site, data, code, "error", "Falta configurar Shopify API para este sitio."))
             continue
-        try:
-            payload = build_shopify_discount_payload(data, segment_ids_by_site.get(site["id"], ""))
-            response = shopify_create(site["shop_key"], payload)
-            discount_id = response.get("codeDiscountNode", {}).get("id")
-            results.append(result_row(site, data, "success", "Cupon creado correctamente.", discount_id))
-        except Exception as exc:
-            results.append(result_row(site, data, "error", str(exc)))
+        for code in codes:
+            try:
+                code_data = {**data, "codigoCupon": code, "nombreInterno": data.get("nombreInterno") or code}
+                payload = build_shopify_discount_payload(code_data, segment_ids_by_site.get(site["id"], ""))
+                response = shopify_create(site["shop_key"], payload)
+                discount_id = response.get("codeDiscountNode", {}).get("id")
+                results.append(result_row(site, code_data, code, "success", "Cupon creado correctamente.", discount_id))
+            except Exception as exc:
+                message = str(exc)
+                status = "exists" if "already exists" in message.lower() or "taken" in message.lower() else "error"
+                results.append(result_row(site, data, code, status, message))
     return results
 
 
@@ -67,11 +79,11 @@ def build_iso_datetime(date_text: str, time_text: str) -> str:
     return f"{date_text}T{time_text}:00-05:00"
 
 
-def result_row(site: dict, data: dict, status: str, message: str, discount_id: str | None = None) -> dict:
+def result_row(site: dict, data: dict, code: str, status: str, message: str, discount_id: str | None = None) -> dict:
     return {
         "siteId": site["id"],
         "siteName": site["name"],
-        "couponCode": data.get("codigoCupon", ""),
+        "couponCode": code or data.get("codigoCupon", ""),
         "status": status,
         "message": message,
         "shopifyDiscountId": discount_id or "",

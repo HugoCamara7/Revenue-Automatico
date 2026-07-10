@@ -14,7 +14,7 @@ import pandas as pd
 import streamlit as st
 
 from coupon_config import COUPON_SHOPIFY_SITES, QUICK_TEMPLATES
-from coupon_parser import default_coupon_data, parse_coupon_text
+from coupon_parser import default_coupon_data, parse_bulk_codes, parse_coupon_text, unique_sites
 from coupon_validation import validate_coupon_data
 from generar_matrixify_descuentos import (
     build_discount_workbook,
@@ -754,6 +754,35 @@ st.markdown(
         color: #6a7691;
         font-size: 13px;
     }
+    .coupon-preview-card {
+        background: linear-gradient(135deg, #101b46, #2332b7);
+        border-radius: 24px;
+        color: #ffffff;
+        padding: 28px;
+        margin: 18px 0;
+        box-shadow: 0 22px 46px rgba(35, 50, 183, .22);
+    }
+    .coupon-preview-code {
+        font-size: 16px;
+        font-weight: 900;
+        letter-spacing: .08em;
+        opacity: .85;
+        text-transform: uppercase;
+        margin-bottom: 10px;
+    }
+    .coupon-preview-discount {
+        font-size: 42px;
+        line-height: 1;
+        font-weight: 950;
+        margin-bottom: 18px;
+    }
+    .coupon-preview-meta {
+        border-top: 1px solid rgba(255,255,255,.18);
+        padding-top: 10px;
+        margin-top: 10px;
+        color: rgba(255,255,255,.88);
+        font-weight: 750;
+    }
     div[data-testid="stTextArea"] textarea {
         min-height: 118px !important;
         border-radius: 12px !important;
@@ -812,6 +841,53 @@ def save_upload(uploaded_file, folder: Path) -> Path:
     return path
 
 
+def can_read_matrixify(path: Path) -> tuple[bool, str]:
+    try:
+        read_matrixify(path)
+        return True, ""
+    except Exception as exc:
+        return False, str(exc)
+
+
+def can_read_revenue(path: Path) -> tuple[bool, str]:
+    try:
+        _ids, modcols = extract_revenue_lookup_values(path)
+        if not modcols:
+            return False, "No encontre COD MOD COL con valores."
+        return True, ""
+    except Exception as exc:
+        return False, str(exc)
+
+
+def resolve_uploaded_roles(revenue_path: Path, matrixify_path: Path) -> tuple[Path, Path, list[str]]:
+    messages: list[str] = []
+    revenue_ok, revenue_error = can_read_revenue(revenue_path)
+    matrixify_ok, matrixify_error = can_read_matrixify(matrixify_path)
+    if revenue_ok and matrixify_ok:
+        return revenue_path, matrixify_path, messages
+
+    swapped_revenue_ok, _swapped_revenue_error = can_read_revenue(matrixify_path)
+    swapped_matrixify_ok, _swapped_matrixify_error = can_read_matrixify(revenue_path)
+    if swapped_revenue_ok and swapped_matrixify_ok:
+        messages.append(
+            "Detecte que los archivos estaban invertidos: use el archivo Matrixify como catalogo y el archivo Revenue como input."
+        )
+        return matrixify_path, revenue_path, messages
+
+    if not revenue_ok:
+        raise ValueError(
+            "El primer archivo no parece ser Revenue/input comercial. "
+            "Debe traer COD MOD COL. Detalle: " + revenue_error
+        )
+    if not matrixify_ok:
+        raise ValueError(
+            "El segundo archivo no parece ser el ultimo Matrixify del sitio. "
+            "Debe traer ID, Handle, Variant SKU, Variant Price y Variant Compare At Price. "
+            "Detalle: " + matrixify_error
+        )
+    return revenue_path, matrixify_path, messages
+
+
 def excel_bytes_from_df(df: pd.DataFrame, sheet_name: str = "Hoja1") -> bytes:
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
@@ -822,6 +898,25 @@ def excel_bytes_from_df(df: pd.DataFrame, sheet_name: str = "Hoja1") -> bytes:
             ws.column_dimensions[column_cells[0].column_letter].width = 24
     buffer.seek(0)
     return buffer.getvalue()
+
+
+def read_coupon_codes_upload(uploaded_file) -> list[str]:
+    if uploaded_file is None:
+        return []
+    name = uploaded_file.name.lower()
+    if name.endswith(".csv"):
+        df = pd.read_csv(uploaded_file, dtype=object)
+    else:
+        df = pd.read_excel(uploaded_file, dtype=object)
+    if df.empty:
+        return []
+    preferred = None
+    for column in df.columns:
+        if str(column).strip().lower() in ("codigo", "codigo cupon", "cupon", "coupon", "code"):
+            preferred = column
+            break
+    column = preferred or df.columns[0]
+    return parse_bulk_codes("\n".join(df[column].dropna().map(str).tolist()))
 
 
 def build_input_template_bytes() -> bytes:
@@ -1074,14 +1169,22 @@ def render_login() -> None:
         <style>
         [data-testid="stSidebar"] { display: none !important; }
         .stApp { background: #142238; }
-        .block-container { max-width: 560px; padding-top: 22px; padding-bottom: 30px; }
+        .block-container {
+            max-width: 620px;
+            min-height: 100vh;
+            padding: 28px 24px !important;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
         div[data-testid="stVerticalBlockBorderWrapper"] {
             background: #ffffff !important;
             border: 0 !important;
-            border-radius: 16px !important;
+            border-radius: 20px !important;
             overflow: hidden !important;
             box-shadow: 0 28px 70px rgba(0, 0, 0, .24) !important;
             padding: 0 !important;
+            width: min(560px, 92vw) !important;
         }
         div[data-testid="stVerticalBlockBorderWrapper"] > div,
         div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stVerticalBlock"] {
@@ -1089,8 +1192,9 @@ def render_login() -> None:
         }
         .login-hero {
             margin: -1rem -1rem 0 !important;
-            border-radius: 16px 16px 0 0;
-            padding: 34px 34px 44px;
+            border-radius: 20px 20px 0 0;
+            padding: 40px 38px 46px;
+            background: linear-gradient(145deg, #2d73ff, #1756f0) !important;
         }
         .login-brand-row {
             gap: 24px;
@@ -1138,25 +1242,33 @@ def render_login() -> None:
         div[data-testid="stForm"] {
             background: #ffffff !important;
             border: 1px solid #d7dce5;
-            border-radius: 10px;
-            padding: 18px;
-            margin: 36px 38px 10px;
+            border-radius: 12px;
+            padding: 22px;
+            margin: 36px 40px 10px;
         }
         div[data-testid="stForm"] label,
         div[data-testid="stForm"] p {
             color: #031b4e !important;
         }
         div[data-testid="stForm"] button {
-            background: #235781;
+            background: #ff454b;
             color: white;
             border-radius: 9px;
             min-height: 48px;
             font-weight: 900;
             padding: 0 22px;
+            width: 100%;
         }
         .login-foot {
             margin: 34px 0 28px;
             color: #62718a !important;
+        }
+        @media (max-width: 620px) {
+            .block-container { padding: 16px !important; }
+            .login-brand-row { gap: 14px; }
+            .login-logo { width: 190px; }
+            .login-title { font-size: 28px; white-space: normal; }
+            div[data-testid="stForm"] { margin: 28px 24px 8px; }
         }
         </style>
         """,
@@ -1184,7 +1296,7 @@ def render_login() -> None:
         with st.form("login_form"):
             email = st.text_input("Correo electronico", placeholder="hugo.camara@forus.pe")
             password = st.text_input("Contrasena", type="password")
-            submitted = st.form_submit_button("Ingresar")
+            submitted = st.form_submit_button("Ingresar", use_container_width=True)
         if submitted:
             if valid_login(email, password):
                 st.session_state["authenticated"] = True
@@ -1493,6 +1605,14 @@ def render_coupon_builder(site_name: str, selected_site: dict) -> None:
     if "coupon_site_version" not in st.session_state:
         st.session_state["coupon_site_version"] = 0
 
+    mode = st.radio(
+        "Metodo de creacion",
+        ["Individual", "Masivo"],
+        horizontal=True,
+        key="coupon_creation_mode",
+    )
+    st.session_state["coupon_data"]["creationMode"] = mode
+
     st.markdown(
         """
         <div class="coupon-builder-card">
@@ -1534,6 +1654,7 @@ def render_coupon_builder(site_name: str, selected_site: dict) -> None:
     if interpret_clicked:
         with st.spinner("Interpretando promocion..."):
             st.session_state["coupon_data"] = parse_coupon_text(promotion_text)
+            st.session_state["coupon_data"]["creationMode"] = mode
             st.session_state["coupon_results"] = []
             st.session_state["coupon_site_version"] += 1
         st.markdown(
@@ -1542,6 +1663,39 @@ def render_coupon_builder(site_name: str, selected_site: dict) -> None:
         )
 
     data = st.session_state["coupon_data"].copy()
+    data["creationMode"] = mode
+    if mode == "Masivo":
+        st.markdown(
+            """
+            <div class="coupon-builder-card tight">
+              <div class="coupon-step-line">
+                <div class="coupon-step-num">1B</div>
+                <div class="coupon-step-title">Codigos masivos</div>
+              </div>
+              <div class="coupon-step-sub">Pega un codigo por linea o carga un Excel/CSV. Todos usaran la misma configuracion.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        bulk_col, upload_col = st.columns([1.4, .8])
+        with bulk_col:
+            bulk_text = st.text_area(
+                "Codigos de cupon",
+                value="\n".join(data.get("couponCodes") or ([data.get("codigoCupon")] if data.get("codigoCupon") else [])),
+                height=130,
+                placeholder="TATI15\nJUAN15\nMARIA15\nSOFIA15",
+            )
+        with upload_col:
+            bulk_file = st.file_uploader("Cargar codigos Excel/CSV", type=["xlsx", "csv"], key="coupon_bulk_file")
+            uploaded_codes = read_coupon_codes_upload(bulk_file) if bulk_file else []
+        bulk_codes = uploaded_codes or parse_bulk_codes(bulk_text)
+        data["couponCodes"] = bulk_codes
+        if bulk_codes:
+            data["codigoCupon"] = bulk_codes[0]
+            data["nombreInterno"] = data.get("nombreInterno") or f"Campana {bulk_codes[0]}"
+    else:
+        data["couponCodes"] = [data.get("codigoCupon", "").strip().upper()] if data.get("codigoCupon") else []
+
     discount_label = (
         f"{data['valorDescuento']:.0f}%"
         if data["tipoDescuento"] == "Porcentaje"
@@ -1549,14 +1703,14 @@ def render_coupon_builder(site_name: str, selected_site: dict) -> None:
     )
     min_label = "S/ 0.00" if float(data["compraMinima"] or 0) == 0 else f"S/ {float(data['compraMinima']):,.2f}"
     date_label = "Hoy" if data["fechaInicio"] == data["fechaFin"] else f"{data['fechaInicio']} - {data['fechaFin']}"
-    enabled_sites = [site_cfg for site_cfg in COUPON_SHOPIFY_SITES if site_cfg["enabled"]]
+    enabled_sites = [site_cfg for site_cfg in unique_sites() if site_cfg["enabled"]]
 
     st.markdown(
         f"""
         <div class="coupon-summary-grid">
           <div class="coupon-summary-card">
             <div class="coupon-summary-icon">#</div>
-            <div><div class="coupon-summary-label">Codigo cupon</div><div class="coupon-summary-value">{data['codigoCupon'] or '-'}</div></div>
+            <div><div class="coupon-summary-label">Codigo cupon</div><div class="coupon-summary-value">{data['codigoCupon'] or '-'}</div><div class="coupon-summary-sub">{len(data.get('couponCodes') or [])} codigo(s)</div></div>
           </div>
           <div class="coupon-summary-card">
             <div class="coupon-summary-icon red">%</div>
@@ -1602,6 +1756,12 @@ def render_coupon_builder(site_name: str, selected_site: dict) -> None:
                 value=float(data["compraMinima"] or 0),
                 step=10.0,
             )
+            data["descuentoMaximo"] = st.number_input(
+                "Descuento maximo (S/)",
+                min_value=0.0,
+                value=float(data.get("descuentoMaximo") or 0),
+                step=10.0,
+            )
             data["fechaInicio"] = st.text_input("Fecha inicio", value=data["fechaInicio"], help="Formato YYYY-MM-DD")
             data["fechaFin"] = st.text_input("Fecha fin", value=data["fechaFin"], help="Formato YYYY-MM-DD")
             data["unaVezPorCliente"] = st.checkbox("Una vez por cliente", value=bool(data["unaVezPorCliente"]))
@@ -1621,6 +1781,21 @@ def render_coupon_builder(site_name: str, selected_site: dict) -> None:
             )
             data["horaInicio"] = st.text_input("Hora inicio", value=data["horaInicio"], help="Formato HH:MM")
             data["horaFin"] = st.text_input("Hora fin", value=data["horaFin"], help="Formato HH:MM")
+            data["appliesTo"] = st.selectbox(
+                "Aplicabilidad",
+                ["Todos los productos", "Productos seleccionados", "Colecciones seleccionadas"],
+                index=["Todos los productos", "Productos seleccionados", "Colecciones seleccionadas"].index(
+                    data.get("appliesTo", "Todos los productos")
+                ),
+            )
+        st.markdown("**Combinaciones permitidas en Shopify**")
+        comb_cols = st.columns(3)
+        with comb_cols[0]:
+            data["combinaProducto"] = st.toggle("Descuentos de producto", value=bool(data.get("combinaProducto")))
+        with comb_cols[1]:
+            data["combinaPedido"] = st.toggle("Descuentos de pedido", value=bool(data.get("combinaPedido")))
+        with comb_cols[2]:
+            data["combinaEnvio"] = st.toggle("Descuentos de envio", value=bool(data.get("combinaEnvio")))
 
     with sites_col:
         st.markdown(
@@ -1659,22 +1834,28 @@ def render_coupon_builder(site_name: str, selected_site: dict) -> None:
             st.session_state["coupon_site_version"] += 1
             st.rerun()
 
+    if mode == "Individual":
+        data["couponCodes"] = [data.get("codigoCupon", "").strip().upper()] if data.get("codigoCupon") else []
     st.session_state["coupon_data"] = data
     min_label = "S/ 0.00" if float(data["compraMinima"] or 0) == 0 else f"S/ {float(data['compraMinima']):,.2f}"
+    codes_for_preview = data.get("couponCodes") or ([data.get("codigoCupon")] if data.get("codigoCupon") else [])
     preview_rows = []
     for site_cfg in enabled_sites:
         if site_cfg["id"] in data["selectedSites"]:
-            preview_rows.append(
-                {
-                    "Sitio": site_cfg["name"],
-                    "Codigo": data["codigoCupon"],
-                    "Descuento": f"{data['valorDescuento']:.0f}%" if data["tipoDescuento"] == "Porcentaje" else f"S/ {data['valorDescuento']:.2f}",
-                    "Compra minima": min_label,
-                    "Vigencia": f"{data['fechaInicio']} {data['horaInicio']} - {data['fechaFin']} {data['horaFin']}",
-                    "Uso por cliente": "Si" if data["unaVezPorCliente"] else "No",
-                    "Estado": "Listo",
-                }
-            )
+            for code in codes_for_preview:
+                preview_rows.append(
+                    {
+                        "Sitio": site_cfg["name"],
+                        "Codigo": code,
+                        "Descuento": f"{data['valorDescuento']:.0f}%" if data["tipoDescuento"] == "Porcentaje" else f"S/ {data['valorDescuento']:.2f}",
+                        "Compra minima": min_label,
+                        "Tope maximo": "Sin tope" if float(data.get("descuentoMaximo") or 0) == 0 else f"S/ {float(data['descuentoMaximo']):,.2f}",
+                        "Vigencia": f"{data['fechaInicio']} {data['horaInicio']} - {data['fechaFin']} {data['horaFin']}",
+                        "Uso por cliente": "Si" if data["unaVezPorCliente"] else "No",
+                        "Combina": f"P:{'Si' if data.get('combinaProducto') else 'No'} / O:{'Si' if data.get('combinaPedido') else 'No'} / E:{'Si' if data.get('combinaEnvio') else 'No'}",
+                        "Estado": "Listo",
+                    }
+                )
 
     st.markdown(
         f"""
@@ -1691,17 +1872,36 @@ def render_coupon_builder(site_name: str, selected_site: dict) -> None:
     if preview_rows:
         st.dataframe(pd.DataFrame(preview_rows), hide_index=True, use_container_width=True)
 
+    for alert in data.get("parserAlerts", []):
+        css_class = "coupon-warning" if alert.get("blocking") else "coupon-note"
+        st.markdown(f'<div class="{css_class}">{alert.get("message")}</div>', unsafe_allow_html=True)
+
+    st.markdown(
+        f"""
+        <div class="coupon-preview-card">
+          <div class="coupon-preview-code">{data['codigoCupon'] or '-'}</div>
+          <div class="coupon-preview-discount">{discount_label} OFF</div>
+          <div class="coupon-preview-meta">Vigencia: {data['fechaInicio']} {data['horaInicio']} hasta {data['fechaFin']} {data['horaFin']}</div>
+          <div class="coupon-preview-meta">Aplicabilidad: {data.get('appliesTo', 'Todos los productos')}</div>
+          <div class="coupon-preview-meta">Combinaciones: Producto {'Si' if data.get('combinaProducto') else 'No'} · Pedido {'Si' if data.get('combinaPedido') else 'No'} · Envio {'Si' if data.get('combinaEnvio') else 'No'}</div>
+          <div class="coupon-preview-meta">{len(codes_for_preview)} cupon(es) x {len(data['selectedSites'])} sitio(s) listos para revisar</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     errors = validate_coupon_data(data)
     for error in errors:
         st.markdown(f'<div class="coupon-warning">{error}</div>', unsafe_allow_html=True)
 
-    button_label = f"Crear {len(data['selectedSites'])} cupon" if len(data["selectedSites"]) == 1 else f"Crear {len(data['selectedSites'])} cupones"
+    total_to_create = len(codes_for_preview) * len(data["selectedSites"])
+    button_label = f"Crear {total_to_create} cupon" if total_to_create == 1 else f"Crear {total_to_create} cupones"
     create_disabled = bool(errors)
     st.markdown(
         f"""
         <div class="coupon-bottom-bar">
           <div>
-            <div class="coupon-bottom-title">Se crearan {len(data['selectedSites'])} cupones en Shopify</div>
+            <div class="coupon-bottom-title">Se crearan {total_to_create} cupones en Shopify</div>
             <div class="coupon-bottom-sub">Revisa la vista previa antes de continuar.</div>
           </div>
         </div>
@@ -1975,11 +2175,11 @@ st.markdown(
 
 upload_left, upload_right = st.columns(2)
 with upload_left:
-    revenue_file = st.file_uploader("1. Subir Revenue / input comercial", type=["xlsx"], key="revenue")
+    revenue_file = st.file_uploader("1. Subir Revenue / input comercial", type=["xlsx", "xlsm"], key="revenue")
 with upload_right:
     matrixify_file = st.file_uploader(
         f"2. Subir ultimo catalogo Matrixify de {site_name}",
-        type=["xlsx"],
+        type=["xlsx", "xlsm"],
         key="matrixify",
         help="Debe corresponder al mismo sitio destino para conservar Product ID y Variant ID.",
     )
@@ -2060,19 +2260,31 @@ if generate:
     email_status = ""
     email_detail = ""
     try:
-        with st.status("Generando archivo Matrixify...", expanded=False) as status:
+        with st.status("Generando archivo Matrixify...", expanded=True) as status:
             with tempfile.TemporaryDirectory() as temp_dir:
                 workdir = Path(temp_dir)
+                status.write("1. Guardando archivos cargados...")
                 revenue_path = save_upload(revenue_file, workdir)
                 matrixify_path = save_upload(matrixify_file, workdir)
                 output_path = workdir / site["output"]
 
-                matrixify_df = read_matrixify(matrixify_path)
+                status.write("2. Validando si cada archivo es Revenue o Matrixify...")
+                revenue_path, matrixify_path, role_messages = resolve_uploaded_roles(revenue_path, matrixify_path)
+                for message in role_messages:
+                    st.warning(message)
+                    status.write(message)
 
+                status.write("3. Leyendo ultimo catalogo Matrixify...")
+                matrixify_df = read_matrixify(matrixify_path)
+                status.write(f"Matrixify reconocido: {len(matrixify_df):,} filas.")
+
+                status.write("4. Leyendo COD MOD COL del Revenue...")
                 revenue_ids, revenue_modcols = extract_revenue_lookup_values(revenue_path)
                 if not revenue_modcols:
-                    st.error("El Revenue debe traer la columna COD MOD COL. Ya no se procesa solo con SKU.")
-                    st.stop()
+                    raise ValueError("El Revenue debe traer la columna COD MOD COL. Ya no se procesa solo con SKU.")
+                status.write(f"Revenue reconocido: {len(revenue_modcols):,} COD MOD COL unicos.")
+
+                status.write("5. Consultando BigQuery para convertir COD MOD COL en SKUs y marca...")
                 product_lookup = load_product_lookup_from_bigquery(
                     tuple(revenue_ids),
                     tuple(revenue_modcols),
@@ -2081,24 +2293,25 @@ if generate:
                 found_ids = len(product_lookup.get("by_id", {}))
                 found_modcols = len(product_lookup.get("by_modcol", {}))
                 if not found_ids or not found_modcols:
-                    st.error(
+                    raise ValueError(
                         "BigQuery no devolvio SKUs para los COD MOD COL del Revenue. "
                         "Revisa que los codigos existan en ARTI antes de generar."
                     )
-                    st.stop()
+                status.write(f"BigQuery encontro {found_ids:,} SKUs y {found_modcols:,} COD MOD COL.")
+
                 missing_bq_modcols = [
                     modcol
                     for modcol in revenue_modcols
                     if normalize_key(modcol) not in product_lookup.get("by_modcol", {})
                 ]
                 if missing_bq_modcols:
-                    st.error(
+                    raise ValueError(
                         "Hay COD MOD COL del Revenue que no existen en BigQuery/ARTI. "
                         "Corrige estos codigos antes de generar: "
                         + ", ".join(missing_bq_modcols[:30])
                         + ("..." if len(missing_bq_modcols) > 30 else "")
                     )
-                    st.stop()
+
                 brand_counts = {}
                 for info in product_lookup.get("by_modcol", {}).values():
                     brand = str(info.get("brand") or "SIN MARCA").strip().upper()
@@ -2106,13 +2319,13 @@ if generate:
                 selected_norm = {normalize_key(brand) for brand in selected_brands}
                 detected_norm = {normalize_key(brand) for brand in brand_counts}
                 if selected_norm and not selected_norm.intersection(detected_norm):
-                    st.error(
+                    raise ValueError(
                         "La marca seleccionada no aparece en los COD MOD COL del input. "
                         f"Seleccionaste: {', '.join(selected_brands)}. "
                         f"BigQuery detecto: {', '.join(sorted(brand_counts))}."
                     )
-                    st.stop()
 
+                status.write("6. Armando hojas Matrixify por campana...")
                 result = build_discount_workbook(
                     matrixify_path=matrixify_path,
                     revenue_path=revenue_path,
@@ -2120,8 +2333,10 @@ if generate:
                     selected_brands=selected_brands,
                     product_lookup=product_lookup,
                 )
+                status.write("7. Preparando archivo para descarga...")
                 output_bytes = output_path.read_bytes()
                 if notify_email.strip() and not result["missing"].empty:
+                    status.write("8. Enviando aviso de faltantes al brand manager...")
                     missing_email_bytes = excel_bytes_from_df(result["missing"], "Faltan crear")
                     try:
                         send_finish_email(
@@ -2147,7 +2362,7 @@ if generate:
                 elif not notify_email.strip() and not result["missing"].empty:
                     email_status = "skipped_no_email"
                     email_detail = "No se envio correo porque no ingresaste destinatario en Aviso al brand manager."
-                status.update(label="Archivo generado correctamente.", state="complete")
+                status.update(label="Archivo generado correctamente. Descarga disponible abajo.", state="complete")
 
         total_rows = int(result["summary"]["Filas Matrixify generadas"].sum()) if not result["summary"].empty else 0
         total_discounted = int(result["summary"]["Filas con descuento"].sum()) if not result["summary"].empty else 0
@@ -2185,6 +2400,15 @@ if generate:
             </div>
             """,
             unsafe_allow_html=True,
+        )
+        st.success("Archivo generado correctamente. Ya puedes descargarlo.")
+        st.download_button(
+            "Descargar Matrixify generado",
+            data=output_bytes,
+            file_name=site["output"],
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="download_matrixify_top",
         )
 
         if brand_counts:
@@ -2240,6 +2464,7 @@ if generate:
             file_name=site["output"],
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
+            key="download_matrixify_bottom",
         )
     except Exception as exc:
         st.error(f"No pude generar el archivo: {exc}")
