@@ -1169,8 +1169,9 @@ def render_login() -> None:
         <style>
         [data-testid="stSidebar"] { display: none !important; }
         .stApp { background: #142238; }
+        section.main > div[data-testid="stMainBlockContainer"],
         .block-container {
-            max-width: 620px;
+            max-width: 580px !important;
             min-height: 100vh;
             padding: 28px 24px !important;
             display: flex;
@@ -1185,6 +1186,8 @@ def render_login() -> None:
             box-shadow: 0 28px 70px rgba(0, 0, 0, .24) !important;
             padding: 0 !important;
             width: min(560px, 92vw) !important;
+            max-width: 560px !important;
+            margin: 0 auto !important;
         }
         div[data-testid="stVerticalBlockBorderWrapper"] > div,
         div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stVerticalBlock"] {
@@ -1193,27 +1196,41 @@ def render_login() -> None:
         .login-hero {
             margin: -1rem -1rem 0 !important;
             border-radius: 20px 20px 0 0;
-            padding: 40px 38px 46px;
+            padding: 34px 34px 40px;
             background: linear-gradient(145deg, #2d73ff, #1756f0) !important;
+            text-align: center;
         }
         .login-brand-row {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
             gap: 24px;
             margin-bottom: 26px;
         }
         .login-logo {
-            width: 224px;
-            min-height: 72px;
+            width: 218px;
+            min-height: 68px;
             padding: 8px 16px;
+            background: #ffffff;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         .login-logo img {
             max-width: 200px;
             max-height: 58px;
         }
         .login-shopify {
-            width: 66px;
-            height: 66px;
-            min-height: 66px;
+            width: 62px;
+            height: 62px;
+            min-height: 62px;
             padding: 8px;
+            background: #ffffff;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         .login-shopify img {
             width: 50px;
@@ -1232,36 +1249,67 @@ def render_login() -> None:
             font-family: Arial, sans-serif;
         }
         .login-title {
-            font-size: 34px;
+            font-size: 32px;
             line-height: 1.1;
             white-space: nowrap;
+            color: #ffffff;
+            font-weight: 950;
         }
         .login-sub {
             font-size: 17px;
+            color: #ffffff;
+            font-weight: 850;
+            opacity: .95;
         }
         div[data-testid="stForm"] {
             background: #ffffff !important;
             border: 1px solid #d7dce5;
             border-radius: 12px;
             padding: 22px;
-            margin: 36px 40px 10px;
+            margin: 32px 40px 8px;
         }
         div[data-testid="stForm"] label,
         div[data-testid="stForm"] p {
             color: #031b4e !important;
         }
-        div[data-testid="stForm"] button {
-            background: #ff454b;
-            color: white;
-            border-radius: 9px;
-            min-height: 48px;
-            font-weight: 900;
-            padding: 0 22px;
-            width: 100%;
+        div[data-testid="stFormSubmitButton"] button {
+            background: #ff454b !important;
+            border-color: #ff454b !important;
+            color: #ffffff !important;
+            border-radius: 9px !important;
+            min-height: 48px !important;
+            font-weight: 900 !important;
+            padding: 0 22px !important;
+            width: 100% !important;
+            box-shadow: none !important;
+        }
+        div[data-testid="stForm"] div[data-testid="stTextInput"] button {
+            background: #eef2f7 !important;
+            border-color: #eef2f7 !important;
+            color: #031b4e !important;
+            min-height: 44px !important;
+            box-shadow: none !important;
+            border-radius: 0 9px 9px 0 !important;
+            width: 52px !important;
+            padding: 0 !important;
+        }
+        div[data-testid="stForm"] div[data-testid="stTextInput"] input {
+            border: 1px solid #dce3ee !important;
+            background: #ffffff !important;
+            color: #031b4e !important;
+            min-height: 46px !important;
+            border-radius: 9px !important;
+            box-shadow: none !important;
+        }
+        div[data-testid="stForm"] div[data-testid="stTextInput"] input:focus {
+            border-color: #b8c8df !important;
+            box-shadow: 0 0 0 2px rgba(45, 115, 255, .12) !important;
         }
         .login-foot {
-            margin: 34px 0 28px;
+            margin: 28px 0 28px;
             color: #62718a !important;
+            text-align: center;
+            font-weight: 900;
         }
         @media (max-width: 620px) {
             .block-container { padding: 16px !important; }
