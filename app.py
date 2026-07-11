@@ -1136,7 +1136,16 @@ def image_data_uri(path: str) -> str:
 
 def get_auth_config() -> dict:
     try:
-        return dict(st.secrets.get("auth", {}))
+        config = dict(st.secrets.get("auth", {}))
+        if config:
+            return config
+        users = st.secrets.get("auth.users", {})
+        if users:
+            return {"users": dict(users)}
+        root_users = st.secrets.get("users", {})
+        if root_users:
+            return {"users": dict(root_users)}
+        return {}
     except Exception:
         return {}
 
@@ -1378,6 +1387,26 @@ def render_login() -> None:
             font-weight: 950;
             line-height: 1.9;
         }
+        .login-message {
+            box-sizing: border-box;
+            width: min(520px, 92vw);
+            margin: 12px auto 0;
+            border-radius: 10px;
+            padding: 13px 18px;
+            font-size: 14px;
+            font-weight: 750;
+            line-height: 1.4;
+        }
+        .login-message.error {
+            background: rgba(255, 69, 75, .13);
+            color: #ff6970;
+            border: 1px solid rgba(255, 69, 75, .24);
+        }
+        .login-message.warn {
+            background: rgba(255, 213, 79, .12);
+            color: #c49415;
+            border: 1px solid rgba(255, 213, 79, .25);
+        }
         @media (max-width: 620px) {
             .block-container { padding: 28px 16px !important; }
             .login-brand-row { gap: 14px; }
@@ -1396,6 +1425,8 @@ def render_login() -> None:
     shopify_src = image_data_uri("shopify_logo.png")
     forus_html = f'<img src="{forus_src}" alt="FORUS">' if forus_src else "<b>FORUS</b>"
     shopify_html = f'<img src="{shopify_src}" alt="Shopify">' if shopify_src else '<div class="shopify-fallback">S</div>'
+    auth_config = get_auth_config()
+    login_error = False
     with st.container(border=True):
         st.markdown('<div class="login-card-anchor"></div>', unsafe_allow_html=True)
         st.markdown(
@@ -1422,11 +1453,19 @@ def render_login() -> None:
                 st.session_state["user_email"] = email.strip().lower()
                 st.rerun()
             else:
-                st.error("Correo o contrasena incorrectos.")
-        if not get_auth_config():
-            st.warning("Configura [auth] en Secrets para habilitar usuarios.")
+                login_error = True
         st.markdown(
             '<div class="login-foot">Sistema exclusivo para personal autorizado</div>',
+            unsafe_allow_html=True,
+        )
+    if login_error:
+        st.markdown(
+            '<div class="login-message error">Correo o contrasena incorrectos.</div>',
+            unsafe_allow_html=True,
+        )
+    if not auth_config:
+        st.markdown(
+            '<div class="login-message warn">Configura usuarios en Secrets para habilitar el ingreso.</div>',
             unsafe_allow_html=True,
         )
     st.markdown(
