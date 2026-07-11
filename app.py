@@ -1189,8 +1189,10 @@ def render_login() -> None:
         }
         .block-container div[data-testid="stElementContainer"] {
             margin: 0 !important;
+            box-sizing: border-box !important;
         }
         .block-container div[data-testid="stVerticalBlockBorderWrapper"] {
+            box-sizing: border-box !important;
             width: min(520px, 92vw) !important;
             max-width: 520px !important;
             margin-left: auto !important;
@@ -1208,7 +1210,8 @@ def render_login() -> None:
             display: none;
         }
         .login-hero {
-            width: min(520px, 92vw);
+            box-sizing: border-box !important;
+            width: min(520px, 92vw) !important;
             margin: 0 auto !important;
             border-radius: 18px 18px 0 0;
             padding: 34px 34px 36px;
@@ -1279,6 +1282,7 @@ def render_login() -> None:
             margin-top: 12px;
         }
         div[data-testid="stForm"] {
+            box-sizing: border-box !important;
             background: #ffffff !important;
             border: 0 !important;
             border-radius: 0 0 18px 18px !important;
@@ -1287,10 +1291,12 @@ def render_login() -> None:
             box-shadow: 0 28px 70px rgba(0, 0, 0, .24) !important;
         }
         div[data-testid="stForm"] {
-            width: 100% !important;
+            width: min(520px, 92vw) !important;
+            max-width: min(520px, 92vw) !important;
         }
         div[data-testid="stForm"] > div {
             gap: 14px !important;
+            box-sizing: border-box !important;
         }
         div[data-testid="stForm"]::after {
             content: "Sistema exclusivo para personal autorizado";
@@ -1301,7 +1307,9 @@ def render_login() -> None:
             font-weight: 900;
         }
         .block-container div[data-testid="stElementContainer"]:has(.login-hero) + div[data-testid="stElementContainer"] {
+            box-sizing: border-box !important;
             width: min(520px, 92vw) !important;
+            max-width: min(520px, 92vw) !important;
             margin: 0 auto !important;
             background: #ffffff !important;
             border-radius: 0 0 18px 18px;
