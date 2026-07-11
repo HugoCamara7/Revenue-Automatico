@@ -1168,49 +1168,65 @@ def render_login() -> None:
         """
         <style>
         [data-testid="stSidebar"] { display: none !important; }
-        .stApp { background: #142238; }
+        .stApp {
+            background: #142238;
+        }
+        header[data-testid="stHeader"] {
+            display: none !important;
+        }
         section.main > div[data-testid="stMainBlockContainer"],
         .block-container {
-            max-width: 580px !important;
+            max-width: 640px !important;
             min-height: 100vh;
-            padding: 28px 24px !important;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            padding: 72px 24px 38px !important;
         }
-        div[data-testid="stVerticalBlockBorderWrapper"] {
-            background: #ffffff !important;
-            border: 0 !important;
-            border-radius: 20px !important;
-            overflow: hidden !important;
-            box-shadow: 0 28px 70px rgba(0, 0, 0, .24) !important;
-            padding: 0 !important;
+        .block-container > div:first-child {
             width: min(560px, 92vw) !important;
-            max-width: 560px !important;
             margin: 0 auto !important;
         }
-        div[data-testid="stVerticalBlockBorderWrapper"] > div,
-        div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stVerticalBlock"] {
-            background: #ffffff !important;
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.login-hero),
+        div[data-testid="stVerticalBlock"]:has(.login-card-anchor) {
+            border: 0 !important;
+            box-shadow: none !important;
+            background: transparent !important;
+            padding: 0 !important;
         }
         .login-hero {
-            margin: -1rem -1rem 0 !important;
+            margin: 0 !important;
             border-radius: 20px 20px 0 0;
-            padding: 34px 34px 40px;
+            padding: 34px 34px 38px;
             background: linear-gradient(145deg, #2d73ff, #1756f0) !important;
             text-align: center;
+            box-shadow: none;
+        }
+        div[data-testid="stElementContainer"]:has(.login-hero) {
+            margin: 0 !important;
+        }
+        div[data-testid="stElementContainer"]:has(.login-hero) + div[data-testid="stElementContainer"]:has(div[data-testid="stForm"]) {
+            background: #ffffff !important;
+            border-radius: 0 0 20px 20px;
+            padding: 32px 0 22px !important;
+            box-shadow: 0 28px 70px rgba(0, 0, 0, .24);
+            margin-top: 0 !important;
+        }
+        div[data-testid="stElementContainer"]:has(.login-foot) {
+            background: #ffffff !important;
+            border-radius: 0 0 20px 20px;
+            margin-top: -22px !important;
+            padding: 0 0 30px !important;
+            box-shadow: 0 28px 70px rgba(0, 0, 0, .24);
         }
         .login-brand-row {
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
-            gap: 24px;
-            margin-bottom: 26px;
+            gap: 22px;
+            margin-bottom: 24px;
         }
         .login-logo {
-            width: 218px;
-            min-height: 68px;
-            padding: 8px 16px;
+            width: 220px;
+            min-height: 66px;
+            padding: 8px 15px;
             background: #ffffff;
             border-radius: 10px;
             display: flex;
@@ -1218,13 +1234,13 @@ def render_login() -> None:
             justify-content: center;
         }
         .login-logo img {
-            max-width: 200px;
-            max-height: 58px;
+            max-width: 198px;
+            max-height: 56px;
         }
         .login-shopify {
-            width: 62px;
-            height: 62px;
-            min-height: 62px;
+            width: 60px;
+            height: 60px;
+            min-height: 60px;
             padding: 8px;
             background: #ffffff;
             border-radius: 10px;
@@ -1249,24 +1265,25 @@ def render_login() -> None:
             font-family: Arial, sans-serif;
         }
         .login-title {
-            font-size: 32px;
+            font-size: 30px;
             line-height: 1.1;
             white-space: nowrap;
             color: #ffffff;
             font-weight: 950;
         }
         .login-sub {
-            font-size: 17px;
+            font-size: 16px;
             color: #ffffff;
             font-weight: 850;
             opacity: .95;
+            margin-top: 12px;
         }
         div[data-testid="stForm"] {
             background: #ffffff !important;
             border: 1px solid #d7dce5;
             border-radius: 12px;
-            padding: 22px;
-            margin: 32px 40px 8px;
+            padding: 22px 22px 18px;
+            margin: 0 40px !important;
         }
         div[data-testid="stForm"] label,
         div[data-testid="stForm"] p {
@@ -1279,9 +1296,13 @@ def render_login() -> None:
             border-radius: 9px !important;
             min-height: 48px !important;
             font-weight: 900 !important;
-            padding: 0 22px !important;
-            width: 100% !important;
+            padding: 0 20px !important;
+            width: auto !important;
+            min-width: 92px !important;
             box-shadow: none !important;
+        }
+        div[data-testid="stFormSubmitButton"] {
+            width: fit-content !important;
         }
         div[data-testid="stForm"] div[data-testid="stTextInput"] button {
             background: #eef2f7 !important;
@@ -1293,9 +1314,16 @@ def render_login() -> None:
             width: 52px !important;
             padding: 0 !important;
         }
+        div[data-testid="stForm"] div[data-testid="stTextInput"] button:hover,
+        div[data-testid="stForm"] div[data-testid="stTextInput"] button:focus {
+            background: #eef2f7 !important;
+            border-color: #eef2f7 !important;
+            color: #031b4e !important;
+            box-shadow: none !important;
+        }
         div[data-testid="stForm"] div[data-testid="stTextInput"] input {
             border: 1px solid #dce3ee !important;
-            background: #ffffff !important;
+            background: #f7f9fc !important;
             color: #031b4e !important;
             min-height: 46px !important;
             border-radius: 9px !important;
@@ -1305,18 +1333,35 @@ def render_login() -> None:
             border-color: #b8c8df !important;
             box-shadow: 0 0 0 2px rgba(45, 115, 255, .12) !important;
         }
+        .login-body {
+            display: none;
+        }
         .login-foot {
-            margin: 28px 0 28px;
+            margin: 28px 40px 0;
             color: #62718a !important;
             text-align: center;
             font-weight: 900;
         }
+        .login-brands-foot {
+            margin: 34px auto 0;
+            width: min(560px, 92vw);
+            color: #ffffff;
+            text-align: center;
+            font-weight: 950;
+            line-height: 1.9;
+        }
         @media (max-width: 620px) {
-            .block-container { padding: 16px !important; }
+            .block-container { padding: 28px 16px !important; }
             .login-brand-row { gap: 14px; }
-            .login-logo { width: 190px; }
-            .login-title { font-size: 28px; white-space: normal; }
-            div[data-testid="stForm"] { margin: 28px 24px 8px; }
+            .login-logo { width: 188px; }
+            .login-shopify { width: 56px; height: 56px; min-height: 56px; }
+            .login-title { font-size: 27px; white-space: normal; }
+            .login-sub { font-size: 15px; }
+            .login-hero { padding: 30px 24px 34px; }
+            div[data-testid="stElementContainer"]:has(.login-hero) + div[data-testid="stElementContainer"]:has(div[data-testid="stForm"]) {
+                padding: 28px 0 22px !important;
+            }
+            div[data-testid="stForm"] { margin: 0 24px !important; }
         }
         </style>
         """,
@@ -1326,7 +1371,8 @@ def render_login() -> None:
     shopify_src = image_data_uri("shopify_logo.png")
     forus_html = f'<img src="{forus_src}" alt="FORUS">' if forus_src else "<b>FORUS</b>"
     shopify_html = f'<img src="{shopify_src}" alt="Shopify">' if shopify_src else '<div class="shopify-fallback">S</div>'
-    with st.container(border=True):
+    st.markdown('<div class="login-card-anchor"></div>', unsafe_allow_html=True)
+    with st.container(border=False):
         st.markdown(
             f"""
             <div class="login-hero">
@@ -1358,6 +1404,10 @@ def render_login() -> None:
             '<div class="login-foot">Sistema exclusivo para personal autorizado</div>',
             unsafe_allow_html=True,
         )
+    st.markdown(
+        '<div class="login-brands-foot">Gestion de catalogos para multiples marcas<br>Columbia &bull; Hush Puppies &bull; Vans &bull; Patagonia &bull; Mas</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def render_sidebar_logo() -> None:
