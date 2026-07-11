@@ -1134,17 +1134,37 @@ def image_data_uri(path: str) -> str:
     return f"data:image/{mime};base64,{encoded}"
 
 
+def plain_secret(value):
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return {key: plain_secret(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [plain_secret(item) for item in value]
+    if hasattr(value, "items"):
+        return {key: plain_secret(item) for key, item in value.items()}
+    return value
+
+
+def clean_auth_text(value) -> str:
+    text = str(value or "")
+    for char in ("\ufeff", "\u200b", "\u200c", "\u200d", "\u2060", "\u00a0"):
+        text = text.replace(char, "")
+    return text.strip()
+
+
 def get_auth_config() -> dict:
     try:
-        config = dict(st.secrets.get("auth", {}))
+        secrets = plain_secret(st.secrets)
+        config = plain_secret(secrets.get("auth", {})) if isinstance(secrets, dict) else {}
         if config:
             return config
-        users = st.secrets.get("auth.users", {})
+        users = plain_secret(secrets.get("auth.users", {})) if isinstance(secrets, dict) else {}
         if users:
-            return {"users": dict(users)}
-        root_users = st.secrets.get("users", {})
+            return {"users": users}
+        root_users = plain_secret(secrets.get("users", {})) if isinstance(secrets, dict) else {}
         if root_users:
-            return {"users": dict(root_users)}
+            return {"users": root_users}
         return {}
     except Exception:
         return {}
@@ -1152,23 +1172,32 @@ def get_auth_config() -> dict:
 
 def valid_login(email: str, password: str) -> bool:
     config = get_auth_config()
-    login_email = email.strip().lower()
-    login_password = str(password).strip()
+    login_email = clean_auth_text(email).lower()
+    login_password = clean_auth_text(password)
     user_list = config.get("users_list", [])
     if isinstance(user_list, list):
         for user in user_list:
             if not isinstance(user, dict):
                 continue
-            stored_email = str(user.get("email", "")).strip().lower()
-            stored_password = str(user.get("password", "")).strip()
+            stored_email = clean_auth_text(user.get("email", "")).lower()
+            stored_password = clean_auth_text(user.get("password", ""))
             if stored_email == login_email and stored_password == login_password:
                 return True
-    users = dict(config.get("users", {})) if isinstance(config.get("users", {}), dict) else {}
+    users_config = config.get("users", {})
+    if isinstance(users_config, list):
+        for user in users_config:
+            if not isinstance(user, dict):
+                continue
+            stored_email = clean_auth_text(user.get("email", "")).lower()
+            stored_password = clean_auth_text(user.get("password", ""))
+            if stored_email == login_email and stored_password == login_password:
+                return True
+    users = dict(users_config) if hasattr(users_config, "items") else {}
     if users:
-        normalized_users = {str(key).strip().lower(): str(value).strip() for key, value in users.items()}
+        normalized_users = {clean_auth_text(key).lower(): clean_auth_text(value) for key, value in users.items()}
         return normalized_users.get(login_email) == login_password
-    allowed = [str(value).strip().lower() for value in config.get("allowed_emails", [])]
-    shared_password = str(config.get("password", "")).strip()
+    allowed = [clean_auth_text(value).lower() for value in config.get("allowed_emails", [])]
+    shared_password = clean_auth_text(config.get("password", ""))
     return bool(login_email in allowed and login_password == shared_password)
 
 
