@@ -1280,11 +1280,11 @@ def render_login() -> None:
         }
         div[data-testid="stForm"] {
             background: #ffffff !important;
-            border: 1px solid #d7dce5;
-            border-radius: 12px;
-            padding: 22px 22px 18px !important;
+            border: 0 !important;
+            border-radius: 0 0 18px 18px !important;
+            padding: 30px 40px 34px !important;
             margin: 0 !important;
-            box-shadow: none !important;
+            box-shadow: 0 28px 70px rgba(0, 0, 0, .24) !important;
         }
         div[data-testid="stForm"] {
             width: 100% !important;
@@ -1292,12 +1292,20 @@ def render_login() -> None:
         div[data-testid="stForm"] > div {
             gap: 14px !important;
         }
+        div[data-testid="stForm"]::after {
+            content: "Sistema exclusivo para personal autorizado";
+            display: block;
+            margin-top: 26px;
+            color: #62718a;
+            text-align: center;
+            font-weight: 900;
+        }
         .block-container div[data-testid="stElementContainer"]:has(.login-hero) + div[data-testid="stElementContainer"] {
             width: min(520px, 92vw) !important;
             margin: 0 auto !important;
             background: #ffffff !important;
             border-radius: 0 0 18px 18px;
-            padding: 28px 38px 0 !important;
+            padding: 0 !important;
             box-shadow: 0 28px 70px rgba(0, 0, 0, .24);
         }
         div[data-testid="stForm"] label,
@@ -1352,15 +1360,7 @@ def render_login() -> None:
             display: none;
         }
         .login-foot {
-            width: min(520px, 92vw);
-            margin: 0 auto !important;
-            padding: 24px 38px 30px;
-            background: #ffffff;
-            border-radius: 0 0 18px 18px;
-            color: #62718a !important;
-            text-align: center;
-            font-weight: 900;
-            box-shadow: 0 28px 70px rgba(0, 0, 0, .24);
+            display: none;
         }
         .login-brands-foot {
             margin: 34px auto 0;
@@ -1378,10 +1378,7 @@ def render_login() -> None:
             .login-title { font-size: 26px; white-space: normal; }
             .login-sub { font-size: 15px; }
             .login-hero { padding: 30px 24px 34px; }
-            .block-container div[data-testid="stElementContainer"]:has(.login-hero) + div[data-testid="stElementContainer"] {
-                padding: 26px 24px 0 !important;
-            }
-            .login-foot { padding: 24px 24px 28px; }
+            div[data-testid="stForm"] { padding: 28px 24px 32px !important; }
         }
         </style>
         """,
