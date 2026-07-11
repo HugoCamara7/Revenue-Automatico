@@ -1184,28 +1184,32 @@ def render_login() -> None:
             width: min(520px, 92vw) !important;
             margin: 0 auto !important;
         }
-        div[data-testid="stVerticalBlockBorderWrapper"]:has(.login-card-anchor) {
+        .block-container div[data-testid="stVerticalBlock"] {
+            gap: 0 !important;
+        }
+        .block-container div[data-testid="stElementContainer"] {
+            margin: 0 !important;
+        }
+        .block-container div[data-testid="stVerticalBlockBorderWrapper"] {
             width: min(520px, 92vw) !important;
             max-width: 520px !important;
-            margin: 0 auto !important;
-            background: #ffffff !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
             border: 0 !important;
-            border-radius: 18px !important;
-            overflow: hidden !important;
-            box-shadow: 0 28px 70px rgba(0, 0, 0, .24) !important;
+            box-shadow: none !important;
             padding: 0 !important;
+            background: transparent !important;
         }
-        div[data-testid="stVerticalBlockBorderWrapper"]:has(.login-card-anchor) > div {
-            background: #ffffff !important;
-        }
-        div[data-testid="stVerticalBlockBorderWrapper"]:has(.login-card-anchor) div[data-testid="stVerticalBlock"] {
-            gap: 0 !important;
+        .block-container div[data-testid="stVerticalBlockBorderWrapper"] > div {
+            background: transparent !important;
+            padding: 0 !important;
         }
         .login-card-anchor {
             display: none;
         }
         .login-hero {
-            margin: -1rem -1rem 0 !important;
+            width: min(520px, 92vw);
+            margin: 0 auto !important;
             border-radius: 18px 18px 0 0;
             padding: 34px 34px 36px;
             background: linear-gradient(145deg, #2d73ff, #1756f0) !important;
@@ -1279,8 +1283,22 @@ def render_login() -> None:
             border: 1px solid #d7dce5;
             border-radius: 12px;
             padding: 22px 22px 18px !important;
-            margin: 32px 38px 0 !important;
+            margin: 0 !important;
             box-shadow: none !important;
+        }
+        div[data-testid="stForm"] {
+            width: 100% !important;
+        }
+        div[data-testid="stForm"] > div {
+            gap: 14px !important;
+        }
+        .block-container div[data-testid="stElementContainer"]:has(.login-hero) + div[data-testid="stElementContainer"] {
+            width: min(520px, 92vw) !important;
+            margin: 0 auto !important;
+            background: #ffffff !important;
+            border-radius: 0 0 18px 18px;
+            padding: 28px 38px 0 !important;
+            box-shadow: 0 28px 70px rgba(0, 0, 0, .24);
         }
         div[data-testid="stForm"] label,
         div[data-testid="stForm"] p {
@@ -1334,10 +1352,15 @@ def render_login() -> None:
             display: none;
         }
         .login-foot {
-            margin: 28px 38px 30px;
+            width: min(520px, 92vw);
+            margin: 0 auto !important;
+            padding: 24px 38px 30px;
+            background: #ffffff;
+            border-radius: 0 0 18px 18px;
             color: #62718a !important;
             text-align: center;
             font-weight: 900;
+            box-shadow: 0 28px 70px rgba(0, 0, 0, .24);
         }
         .login-brands-foot {
             margin: 34px auto 0;
@@ -1355,8 +1378,10 @@ def render_login() -> None:
             .login-title { font-size: 26px; white-space: normal; }
             .login-sub { font-size: 15px; }
             .login-hero { padding: 30px 24px 34px; }
-            div[data-testid="stForm"] { margin: 28px 24px 0 !important; }
-            .login-foot { margin: 26px 24px 28px; }
+            .block-container div[data-testid="stElementContainer"]:has(.login-hero) + div[data-testid="stElementContainer"] {
+                padding: 26px 24px 0 !important;
+            }
+            .login-foot { padding: 24px 24px 28px; }
         }
         </style>
         """,
