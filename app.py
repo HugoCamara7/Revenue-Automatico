@@ -1176,57 +1176,53 @@ def render_login() -> None:
         }
         section.main > div[data-testid="stMainBlockContainer"],
         .block-container {
-            max-width: 640px !important;
+            max-width: 620px !important;
             min-height: 100vh;
-            padding: 72px 24px 38px !important;
+            padding: 70px 24px 38px !important;
         }
         .block-container > div:first-child {
-            width: min(560px, 92vw) !important;
+            width: min(520px, 92vw) !important;
             margin: 0 auto !important;
         }
-        div[data-testid="stVerticalBlockBorderWrapper"]:has(.login-hero),
-        div[data-testid="stVerticalBlock"]:has(.login-card-anchor) {
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.login-card-anchor) {
+            width: min(520px, 92vw) !important;
+            max-width: 520px !important;
+            margin: 0 auto !important;
+            background: #ffffff !important;
             border: 0 !important;
-            box-shadow: none !important;
-            background: transparent !important;
+            border-radius: 18px !important;
+            overflow: hidden !important;
+            box-shadow: 0 28px 70px rgba(0, 0, 0, .24) !important;
             padding: 0 !important;
         }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.login-card-anchor) > div {
+            background: #ffffff !important;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.login-card-anchor) div[data-testid="stVerticalBlock"] {
+            gap: 0 !important;
+        }
+        .login-card-anchor {
+            display: none;
+        }
         .login-hero {
-            margin: 0 !important;
-            border-radius: 20px 20px 0 0;
-            padding: 34px 34px 38px;
+            margin: -1rem -1rem 0 !important;
+            border-radius: 18px 18px 0 0;
+            padding: 34px 34px 36px;
             background: linear-gradient(145deg, #2d73ff, #1756f0) !important;
             text-align: center;
             box-shadow: none;
-        }
-        div[data-testid="stElementContainer"]:has(.login-hero) {
-            margin: 0 !important;
-        }
-        div[data-testid="stElementContainer"]:has(.login-hero) + div[data-testid="stElementContainer"]:has(div[data-testid="stForm"]) {
-            background: #ffffff !important;
-            border-radius: 0 0 20px 20px;
-            padding: 32px 0 22px !important;
-            box-shadow: 0 28px 70px rgba(0, 0, 0, .24);
-            margin-top: 0 !important;
-        }
-        div[data-testid="stElementContainer"]:has(.login-foot) {
-            background: #ffffff !important;
-            border-radius: 0 0 20px 20px;
-            margin-top: -22px !important;
-            padding: 0 0 30px !important;
-            box-shadow: 0 28px 70px rgba(0, 0, 0, .24);
         }
         .login-brand-row {
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
-            gap: 22px;
+            gap: 20px;
             margin-bottom: 24px;
         }
         .login-logo {
-            width: 220px;
-            min-height: 66px;
-            padding: 8px 15px;
+            width: 200px;
+            min-height: 58px;
+            padding: 7px 14px;
             background: #ffffff;
             border-radius: 10px;
             display: flex;
@@ -1234,13 +1230,13 @@ def render_login() -> None:
             justify-content: center;
         }
         .login-logo img {
-            max-width: 198px;
-            max-height: 56px;
+            max-width: 178px;
+            max-height: 50px;
         }
         .login-shopify {
-            width: 60px;
-            height: 60px;
-            min-height: 60px;
+            width: 56px;
+            height: 56px;
+            min-height: 56px;
             padding: 8px;
             background: #ffffff;
             border-radius: 10px;
@@ -1249,8 +1245,8 @@ def render_login() -> None:
             justify-content: center;
         }
         .login-shopify img {
-            width: 50px;
-            height: 50px;
+            width: 46px;
+            height: 46px;
         }
         .shopify-fallback {
             width: 50px;
@@ -1282,8 +1278,9 @@ def render_login() -> None:
             background: #ffffff !important;
             border: 1px solid #d7dce5;
             border-radius: 12px;
-            padding: 22px 22px 18px;
-            margin: 0 40px !important;
+            padding: 22px 22px 18px !important;
+            margin: 32px 38px 0 !important;
+            box-shadow: none !important;
         }
         div[data-testid="stForm"] label,
         div[data-testid="stForm"] p {
@@ -1337,14 +1334,14 @@ def render_login() -> None:
             display: none;
         }
         .login-foot {
-            margin: 28px 40px 0;
+            margin: 28px 38px 30px;
             color: #62718a !important;
             text-align: center;
             font-weight: 900;
         }
         .login-brands-foot {
             margin: 34px auto 0;
-            width: min(560px, 92vw);
+            width: min(520px, 92vw);
             color: #ffffff;
             text-align: center;
             font-weight: 950;
@@ -1353,15 +1350,13 @@ def render_login() -> None:
         @media (max-width: 620px) {
             .block-container { padding: 28px 16px !important; }
             .login-brand-row { gap: 14px; }
-            .login-logo { width: 188px; }
-            .login-shopify { width: 56px; height: 56px; min-height: 56px; }
-            .login-title { font-size: 27px; white-space: normal; }
+            .login-logo { width: 176px; }
+            .login-shopify { width: 52px; height: 52px; min-height: 52px; }
+            .login-title { font-size: 26px; white-space: normal; }
             .login-sub { font-size: 15px; }
             .login-hero { padding: 30px 24px 34px; }
-            div[data-testid="stElementContainer"]:has(.login-hero) + div[data-testid="stElementContainer"]:has(div[data-testid="stForm"]) {
-                padding: 28px 0 22px !important;
-            }
-            div[data-testid="stForm"] { margin: 0 24px !important; }
+            div[data-testid="stForm"] { margin: 28px 24px 0 !important; }
+            .login-foot { margin: 26px 24px 28px; }
         }
         </style>
         """,
@@ -1371,8 +1366,8 @@ def render_login() -> None:
     shopify_src = image_data_uri("shopify_logo.png")
     forus_html = f'<img src="{forus_src}" alt="FORUS">' if forus_src else "<b>FORUS</b>"
     shopify_html = f'<img src="{shopify_src}" alt="Shopify">' if shopify_src else '<div class="shopify-fallback">S</div>'
-    st.markdown('<div class="login-card-anchor"></div>', unsafe_allow_html=True)
-    with st.container(border=False):
+    with st.container(border=True):
+        st.markdown('<div class="login-card-anchor"></div>', unsafe_allow_html=True)
         st.markdown(
             f"""
             <div class="login-hero">
