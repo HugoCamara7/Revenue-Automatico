@@ -98,13 +98,14 @@ Secrets requeridos por sitio:
 shop_domain = "columbia.myshopify.com"
 admin_access_token = "shpat_xxxxxxxxxxxxxxxxx"
 api_version = "2026-04"
-compare_at_best_wins_function_id = "gid://shopify/ShopifyFunction/xxxxxxxxxx"
+compare_at_best_wins_function_handle = "compare-at-best-wins"
 ```
 
 Antes de activar esta modalidad confirma:
 
 - La tienda y la app permiten Shopify Functions.
 - Existe una extension Discount Function con target `cart.lines.discounts.generate.run`.
+- El `handle` de esa Function es `compare-at-best-wins`.
 - La app esta vinculada con Shopify CLI y puede ejecutar `shopify app deploy`.
 - El token tiene `write_discounts`.
 - Si es custom app y la tienda no permite esta extension, usar una app publica compatible o convertir el proyecto en una app publica/distribuible.

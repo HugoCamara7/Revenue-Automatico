@@ -27,7 +27,7 @@ def build_shopify_discount_payload(data: dict, customer_segment_id: str = "") ->
             "orderDiscounts": bool(data.get("combinaPedido")),
             "shippingDiscounts": bool(data.get("combinaEnvio")),
         },
-        "customerSelection": customer_context,
+        "context": customer_context,
         "customerGets": {
             "items": {"all": True},
             "value": build_discount_value(data),
@@ -42,9 +42,14 @@ def build_shopify_discount_payload(data: dict, customer_segment_id: str = "") ->
     return payload
 
 
-def build_shopify_app_discount_payload(data: dict, function_id: str, customer_segment_id: str = "") -> dict:
-    if not function_id:
-        raise ValueError("Falta function_id de Shopify Discount Function.")
+def build_shopify_app_discount_payload(
+    data: dict,
+    function_handle: str = "",
+    customer_segment_id: str = "",
+    function_id: str = "",
+) -> dict:
+    if not function_handle and not function_id:
+        raise ValueError("Falta function_handle de Shopify Discount Function.")
     customer_context = {"all": True}
     if customer_segment_id:
         customer_context = {"customerSegments": {"add": [customer_segment_id]}}
@@ -52,7 +57,6 @@ def build_shopify_app_discount_payload(data: dict, function_id: str, customer_se
     payload = {
         "title": data["nombreInterno"].strip() or data["codigoCupon"].strip(),
         "code": data["codigoCupon"].strip().upper(),
-        "functionId": function_id,
         "startsAt": build_iso_datetime(data["fechaInicio"], data["horaInicio"]),
         "endsAt": build_iso_datetime(data["fechaFin"], data["horaFin"]),
         "appliesOncePerCustomer": bool(data.get("unaVezPorCliente")),
@@ -61,7 +65,7 @@ def build_shopify_app_discount_payload(data: dict, function_id: str, customer_se
             "orderDiscounts": bool(data.get("combinaPedido")),
             "shippingDiscounts": bool(data.get("combinaEnvio")),
         },
-        "customerSelection": customer_context,
+        "context": customer_context,
         "metafields": [
             {
                 "namespace": METAFIELD_NAMESPACE,
@@ -71,6 +75,10 @@ def build_shopify_app_discount_payload(data: dict, function_id: str, customer_se
             }
         ],
     }
+    if function_handle:
+        payload["functionHandle"] = function_handle
+    else:
+        payload["functionId"] = function_id
     if int(data.get("limiteTotalUsos") or 0) > 0:
         payload["usageLimit"] = int(data["limiteTotalUsos"])
     if float(data.get("compraMinima") or 0) > 0:
@@ -101,9 +109,11 @@ def create_coupon_for_multiple_sites(
             try:
                 code_data = {**data, "codigoCupon": code, "nombreInterno": data.get("nombreInterno") or code}
                 if code_data.get("priceBasis") == PRICE_BASIS_COMPARE_AT_BEST_WINS:
+                    function_handle = code_data.get("functionHandlesByShop", {}).get(site["shop_key"], "")
                     function_id = code_data.get("functionIdsByShop", {}).get(site["shop_key"], "")
                     payload = build_shopify_app_discount_payload(
                         code_data,
+                        function_handle=function_handle,
                         function_id=function_id,
                         customer_segment_id=segment_ids_by_site.get(site["id"], ""),
                     )

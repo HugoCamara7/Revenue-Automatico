@@ -4,7 +4,11 @@ from compare_at_best_wins import PRICE_BASIS_COMPARE_AT_BEST_WINS
 from coupon_parser import combine_datetime
 
 
-def validate_coupon_data(data: dict, function_ids_by_shop: dict[str, str] | None = None) -> list[str]:
+def validate_coupon_data(
+    data: dict,
+    function_ids_by_shop: dict[str, str] | None = None,
+    function_handles_by_shop: dict[str, str] | None = None,
+) -> list[str]:
     errors = []
     codes = data.get("couponCodes") or []
     if not codes and str(data.get("codigoCupon", "")).strip():
@@ -27,14 +31,18 @@ def validate_coupon_data(data: dict, function_ids_by_shop: dict[str, str] | None
             errors.append("Compare At Price - Best Wins solo esta disponible para descuentos porcentuales.")
         if not data.get("selectedSites"):
             pass
-        elif function_ids_by_shop is not None:
+        elif function_handles_by_shop is not None or function_ids_by_shop is not None:
             missing = []
             for shop_key in data.get("selectedShopKeys", []):
-                if not function_ids_by_shop.get(shop_key):
+                handle = (function_handles_by_shop or {}).get(shop_key)
+                function_id = (function_ids_by_shop or {}).get(shop_key)
+                if not handle and not function_id:
                     missing.append(shop_key)
             if missing:
                 errors.append(
-                    "Falta compare_at_best_wins_function_id en Secrets para: " + ", ".join(sorted(missing)) + "."
+                    "Falta compare_at_best_wins_function_handle en Secrets para: "
+                    + ", ".join(sorted(missing))
+                    + "."
                 )
     if float(data.get("compraMinima") or 0) < 0:
         errors.append("La compra minima no puede ser negativa.")
