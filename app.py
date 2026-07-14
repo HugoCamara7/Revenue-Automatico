@@ -2244,8 +2244,343 @@ def render_coupon_builder(site_name: str, selected_site: dict) -> None:
         st.caption("Para Compare At Price - Best Wins necesitas una Shopify Discount Function desplegada y permisos write_discounts.")
 
 
+def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
+    shop_key = selected_site["shop_key"]
+    if "coupon_data" not in st.session_state:
+        st.session_state["coupon_data"] = default_coupon_data()
+    if "coupon_results" not in st.session_state:
+        st.session_state["coupon_results"] = []
+
+    head_left, head_right = st.columns([1, 0.34])
+    with head_left:
+        st.title("Smart Coupon Builder")
+        st.caption("Crea cupones Shopify para multiples marcas desde una sola pantalla.")
+    with head_right:
+        st.button("Historial", use_container_width=True, disabled=True)
+        if st.button("Nuevo cupon", type="primary", use_container_width=True):
+            st.session_state["coupon_data"] = default_coupon_data()
+            st.session_state["coupon_results"] = []
+            st.rerun()
+
+    mode = st.radio(
+        "Metodo de creacion",
+        ["Individual", "Masivo"],
+        horizontal=True,
+        key="coupon_creation_mode_stable",
+    )
+    st.session_state["coupon_data"]["creationMode"] = mode
+
+    with st.container(border=True):
+        st.subheader("1. Describe la promocion")
+        st.caption("Escribe una instruccion y deja que la app complete los campos. Luego puedes editar todo.")
+        prompt_col, interpret_col = st.columns([5.2, 1.05])
+        with prompt_col:
+            promotion_text = st.text_area(
+                "Describe la promocion",
+                value=st.session_state.get("promotion_text", ""),
+                placeholder=(
+                    "Crear cupon CLUBTOYOTA20 con 20% de descuento para BCP, BBVA e Interbank "
+                    "en Columbia, Hushpuppies y Rockford. Valido hoy desde 00:00 hasta 23:59, "
+                    "una vez por cliente."
+                ),
+                height=118,
+                key="promotion_text",
+                label_visibility="collapsed",
+            )
+        with interpret_col:
+            st.write("")
+            st.write("")
+            interpret_clicked = st.button("Interpretar promocion", type="primary", use_container_width=True)
+
+        quick_label, *quick_cols = st.columns([1.1, 1, 1, 1, 1, 1, 1, 1])
+        quick_label.caption("Sugerencias rapidas:")
+        for column, (chip, template) in zip(quick_cols, QUICK_TEMPLATES.items()):
+            if column.button(chip, use_container_width=True, key=f"stable_template_{chip}"):
+                st.session_state["promotion_text"] = template
+                st.rerun()
+
+    if interpret_clicked:
+        with st.spinner("Interpretando promocion..."):
+            st.session_state["coupon_data"] = parse_coupon_text(promotion_text)
+            st.session_state["coupon_data"]["creationMode"] = mode
+            st.session_state["coupon_results"] = []
+        st.success("Promocion interpretada. Puedes editar cualquier campo antes de crear.")
+
+    data = st.session_state["coupon_data"].copy()
+    data["creationMode"] = mode
+
+    if mode == "Masivo":
+        with st.container(border=True):
+            st.subheader("1B. Codigos masivos")
+            st.caption("Pega un codigo por linea o carga un Excel/CSV. Todos usaran la misma configuracion.")
+            bulk_col, upload_col = st.columns([1.4, .8])
+            with bulk_col:
+                bulk_text = st.text_area(
+                    "Codigos de cupon",
+                    value="\n".join(data.get("couponCodes") or ([data.get("codigoCupon")] if data.get("codigoCupon") else [])),
+                    height=130,
+                    placeholder="TATI15\nJUAN15\nMARIA15\nSOFIA15",
+                    key="stable_bulk_codes",
+                )
+            with upload_col:
+                bulk_file = st.file_uploader("Cargar codigos Excel/CSV", type=["xlsx", "csv"], key="coupon_bulk_file_stable")
+                uploaded_codes = read_coupon_codes_upload(bulk_file) if bulk_file else []
+            bulk_codes = uploaded_codes or parse_bulk_codes(bulk_text)
+            data["couponCodes"] = bulk_codes
+            if bulk_codes:
+                data["codigoCupon"] = bulk_codes[0]
+                data["nombreInterno"] = data.get("nombreInterno") or f"Campana {bulk_codes[0]}"
+    else:
+        data["couponCodes"] = [data.get("codigoCupon", "").strip().upper()] if data.get("codigoCupon") else []
+
+    discount_label = (
+        f"{data['valorDescuento']:.0f}%"
+        if data["tipoDescuento"] == "Porcentaje"
+        else f"S/ {data['valorDescuento']:.2f}"
+    )
+    min_label = "S/ 0.00" if float(data["compraMinima"] or 0) == 0 else f"S/ {float(data['compraMinima']):,.2f}"
+    date_label = "Hoy" if data["fechaInicio"] == data["fechaFin"] else f"{data['fechaInicio']} - {data['fechaFin']}"
+    enabled_sites = [site_cfg for site_cfg in unique_sites() if site_cfg["enabled"]]
+
+    kpi_cols = st.columns(4)
+    kpi_cols[0].metric("Codigo cupon", data["codigoCupon"] or "-", f"{len(data.get('couponCodes') or [])} codigo(s)")
+    kpi_cols[1].metric("Descuento", discount_label, data["tipoDescuento"])
+    kpi_cols[2].metric("Sitios seleccionados", len(data["selectedSites"]), f"de {len(enabled_sites)} disponibles")
+    kpi_cols[3].metric("Vigencia", date_label, f"{data['horaInicio']} - {data['horaFin']}")
+
+    form_col, sites_col = st.columns([1.35, .95])
+    with form_col:
+        with st.container(border=True):
+            st.subheader("2. Condiciones del cupon")
+            left, right = st.columns(2)
+            with left:
+                data["nombreInterno"] = st.text_input("Nombre interno", value=data["nombreInterno"], key="stable_nombre")
+                data["tipoDescuento"] = st.selectbox(
+                    "Tipo descuento",
+                    ["Porcentaje", "Monto fijo"],
+                    index=["Porcentaje", "Monto fijo"].index(data.get("tipoDescuento", "Porcentaje")),
+                    key="stable_tipo",
+                )
+                data["priceBasis"] = st.selectbox(
+                    "Base de calculo",
+                    [PRICE_BASIS_CURRENT, PRICE_BASIS_COMPARE_AT_BEST_WINS],
+                    format_func=lambda value: "Price actual" if value == PRICE_BASIS_CURRENT else "Compare At Price - Best Wins",
+                    index=[PRICE_BASIS_CURRENT, PRICE_BASIS_COMPARE_AT_BEST_WINS].index(
+                        data.get("priceBasis", PRICE_BASIS_CURRENT)
+                    ),
+                    key="stable_price_basis",
+                )
+                if data["priceBasis"] == PRICE_BASIS_COMPARE_AT_BEST_WINS:
+                    st.info("El cupon se calcula desde el precio original. Si el producto ya tiene una promocion mejor, se conserva automaticamente el precio mas bajo.")
+                    data["missingCompareAtBehavior"] = st.selectbox(
+                        "Cuando no existe Compare At Price",
+                        ["use_current_price", "do_not_apply"],
+                        format_func=lambda value: "Usar Price actual como base" if value == "use_current_price" else "No aplicar cupon",
+                        index=["use_current_price", "do_not_apply"].index(
+                            data.get("missingCompareAtBehavior", "use_current_price")
+                        ),
+                        key="stable_missing_compare",
+                    )
+                    data["functionMessage"] = st.text_input(
+                        "Mensaje del descuento",
+                        value=data.get("functionMessage", "Se aplico el mejor precio disponible"),
+                        key="stable_function_message",
+                    )
+                data["compraMinima"] = st.number_input(
+                    "Compra minima (S/)",
+                    min_value=0.0,
+                    value=float(data["compraMinima"] or 0),
+                    step=10.0,
+                    key="stable_minimo",
+                )
+                data["descuentoMaximo"] = st.number_input(
+                    "Descuento maximo (S/)",
+                    min_value=0.0,
+                    value=float(data.get("descuentoMaximo") or 0),
+                    step=10.0,
+                    key="stable_tope",
+                )
+                data["fechaInicio"] = st.text_input("Fecha inicio", value=data["fechaInicio"], help="Formato YYYY-MM-DD", key="stable_fecha_inicio")
+                data["fechaFin"] = st.text_input("Fecha fin", value=data["fechaFin"], help="Formato YYYY-MM-DD", key="stable_fecha_fin")
+                data["unaVezPorCliente"] = st.checkbox("Una vez por cliente", value=bool(data["unaVezPorCliente"]), key="stable_once")
+            with right:
+                data["codigoCupon"] = st.text_input("Codigo cupon", value=data["codigoCupon"], key="stable_codigo")
+                data["valorDescuento"] = st.number_input(
+                    "Valor descuento",
+                    min_value=0.0,
+                    value=float(data["valorDescuento"]),
+                    step=1.0,
+                    key="stable_valor",
+                )
+                data["limiteTotalUsos"] = st.number_input(
+                    "Limite total de usos",
+                    min_value=0,
+                    value=int(data["limiteTotalUsos"] or 0),
+                    step=1,
+                    key="stable_limite",
+                )
+                data["horaInicio"] = st.text_input("Hora inicio", value=data["horaInicio"], help="Formato HH:MM", key="stable_hora_inicio")
+                data["horaFin"] = st.text_input("Hora fin", value=data["horaFin"], help="Formato HH:MM", key="stable_hora_fin")
+                data["appliesTo"] = st.selectbox(
+                    "Aplicabilidad",
+                    ["Todos los productos", "Productos seleccionados", "Colecciones seleccionadas"],
+                    index=["Todos los productos", "Productos seleccionados", "Colecciones seleccionadas"].index(
+                        data.get("appliesTo", "Todos los productos")
+                    ),
+                    key="stable_aplica",
+                )
+            st.markdown("**Combinaciones permitidas en Shopify**")
+            comb_cols = st.columns(3)
+            with comb_cols[0]:
+                data["combinaProducto"] = st.toggle("Descuentos de producto", value=bool(data.get("combinaProducto")), key="stable_comb_prod")
+            with comb_cols[1]:
+                data["combinaPedido"] = st.toggle("Descuentos de pedido", value=bool(data.get("combinaPedido")), key="stable_comb_order")
+            with comb_cols[2]:
+                data["combinaEnvio"] = st.toggle("Descuentos de envio", value=bool(data.get("combinaEnvio")), key="stable_comb_ship")
+
+    with sites_col:
+        with st.container(border=True):
+            st.subheader("3. Sitios Shopify")
+            all_site_ids = [site_cfg["id"] for site_cfg in enabled_sites]
+            site_options = {site_cfg["name"]: site_cfg["id"] for site_cfg in enabled_sites}
+            selected_site_names = [
+                site_cfg["name"]
+                for site_cfg in enabled_sites
+                if site_cfg["id"] in data.get("selectedSites", [])
+            ]
+            selected_site_names = st.multiselect(
+                "Tiendas donde se creara el cupon",
+                list(site_options),
+                default=selected_site_names,
+                key="stable_selected_sites",
+            )
+            data["selectedSites"] = [site_options[name] for name in selected_site_names]
+            st.caption(f"{len(data['selectedSites'])} seleccionados")
+            site_actions = st.columns(2)
+            if site_actions[0].button("Seleccionar todos", use_container_width=True, key="stable_all_sites"):
+                data["selectedSites"] = all_site_ids
+                st.session_state["coupon_data"] = data
+                st.session_state["stable_selected_sites"] = list(site_options)
+                st.rerun()
+            if site_actions[1].button("Limpiar", use_container_width=True, key="stable_clear_sites"):
+                data["selectedSites"] = []
+                st.session_state["coupon_data"] = data
+                st.session_state["stable_selected_sites"] = []
+                st.rerun()
+
+    if mode == "Individual":
+        data["couponCodes"] = [data.get("codigoCupon", "").strip().upper()] if data.get("codigoCupon") else []
+    selected_shop_keys = {
+        site_cfg["id"]: site_cfg["shop_key"]
+        for site_cfg in enabled_sites
+        if site_cfg["id"] in data["selectedSites"]
+    }
+    data["selectedShopKeys"] = list(selected_shop_keys.values())
+    data["functionHandlesByShop"] = {
+        shop_key: shopify_function_handle(shop_key)
+        for shop_key in data["selectedShopKeys"]
+    }
+    data["functionIdsByShop"] = {
+        shop_key: shopify_function_id(shop_key)
+        for shop_key in data["selectedShopKeys"]
+    }
+    st.session_state["coupon_data"] = data
+
+    codes_for_preview = data.get("couponCodes") or ([data.get("codigoCupon")] if data.get("codigoCupon") else [])
+    preview_rows = []
+    for site_cfg in enabled_sites:
+        if site_cfg["id"] in data["selectedSites"]:
+            for code in codes_for_preview:
+                preview_rows.append(
+                    {
+                        "Sitio": site_cfg["name"],
+                        "Codigo": code,
+                        "Descuento": f"{data['valorDescuento']:.0f}%" if data["tipoDescuento"] == "Porcentaje" else f"S/ {data['valorDescuento']:.2f}",
+                        "Compra minima": min_label,
+                        "Tope maximo": "Sin tope" if float(data.get("descuentoMaximo") or 0) == 0 else f"S/ {float(data['descuentoMaximo']):,.2f}",
+                        "Vigencia": f"{data['fechaInicio']} {data['horaInicio']} - {data['fechaFin']} {data['horaFin']}",
+                        "Uso por cliente": "Si" if data["unaVezPorCliente"] else "No",
+                        "Combina": f"P:{'Si' if data.get('combinaProducto') else 'No'} / O:{'Si' if data.get('combinaPedido') else 'No'} / E:{'Si' if data.get('combinaEnvio') else 'No'}",
+                        "Estado": "Listo",
+                    }
+                )
+
+    with st.container(border=True):
+        st.subheader("4. Vista previa por sitio")
+        st.caption(f"{len(preview_rows)} cupon(es) listos para crear")
+        if preview_rows:
+            st.dataframe(pd.DataFrame(preview_rows), hide_index=True, use_container_width=True)
+        else:
+            st.info("Selecciona al menos un sitio y completa el codigo para ver la vista previa.")
+
+    if data.get("priceBasis") == PRICE_BASIS_COMPARE_AT_BEST_WINS:
+        with st.container(border=True):
+            st.subheader("Vista previa Best Wins por producto")
+            st.caption("Simula la logica de Compare At Price contra el Price actual. Nunca aumenta el precio ni descuenta si la promocion vigente ya gana.")
+            st.dataframe(pd.DataFrame(build_preview_rows(data)), hide_index=True, use_container_width=True)
+
+    for alert in data.get("parserAlerts", []):
+        if alert.get("blocking"):
+            st.warning(alert.get("message"))
+        else:
+            st.info(alert.get("message"))
+
+    with st.expander("Resumen tecnico del cupon", expanded=False):
+        st.write(f"Codigo: {data['codigoCupon'] or '-'}")
+        st.write(f"Descuento: {discount_label} OFF")
+        st.write(
+            "Base de calculo: "
+            + ("Compare At Price - Best Wins" if data.get("priceBasis") == PRICE_BASIS_COMPARE_AT_BEST_WINS else "Price actual")
+        )
+        st.write(f"Vigencia: {data['fechaInicio']} {data['horaInicio']} hasta {data['fechaFin']} {data['horaFin']}")
+        st.write(f"Aplicabilidad: {data.get('appliesTo', 'Todos los productos')}")
+
+    errors = validate_coupon_data(
+        data,
+        function_ids_by_shop=data.get("functionIdsByShop", {}),
+        function_handles_by_shop=data.get("functionHandlesByShop", {}),
+    )
+    for error in errors:
+        st.error(error)
+
+    total_to_create = len(codes_for_preview) * len(data["selectedSites"])
+    button_label = f"Crear {total_to_create} cupon" if total_to_create == 1 else f"Crear {total_to_create} cupones"
+    create_disabled = bool(errors)
+    st.info(f"Se crearan {total_to_create} cupones en Shopify. Revisa la vista previa antes de continuar.")
+    draft_col, create_col = st.columns([1, 1])
+    if draft_col.button("Guardar borrador", use_container_width=True, key="stable_draft"):
+        st.info("Borrador conservado en esta sesion.")
+    if create_col.button(button_label, type="primary", use_container_width=True, disabled=create_disabled, key="stable_create"):
+        with st.status("Creando cupones en Shopify...", expanded=True) as status:
+            results = create_coupon_for_multiple_sites(
+                data,
+                segment_ids_by_site={},
+                shopify_create=create_shopify_coupon,
+                configured_checker=shopify_is_configured,
+            )
+            st.session_state["coupon_results"] = results
+            status.update(label="Proceso terminado.", state="complete")
+
+    if st.session_state["coupon_results"]:
+        st.subheader("Resultados de creacion")
+        st.dataframe(pd.DataFrame(st.session_state["coupon_results"]), hide_index=True, use_container_width=True)
+
+    with st.expander("Secrets necesarios para Shopify"):
+        secret_example = (
+            "[shopify_sites." + shop_key + "]\n"
+            'shop_domain = "' + shop_key + '.myshopify.com"\n'
+            'client_id = ""\n'
+            'client_secret = ""\n'
+            'admin_access_token = "shpat_xxxxxxxxxxxxxxxxx"\n'
+            'api_version = "2026-04"\n'
+            'compare_at_best_wins_function_handle = "compare-at-best-wins"'
+        )
+        st.code(secret_example, language="toml")
+        st.caption("Para Compare At Price - Best Wins necesitas una Shopify Discount Function desplegada y permisos write_discounts.")
+
+
 if module == "Generar cupones":
-    render_coupon_builder(site_name, site)
+    render_coupon_builder_stable(site_name, site)
     st.stop()
     render_top_header(site_name)
     shop_key = site["shop_key"]
