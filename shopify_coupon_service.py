@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from typing import Callable
 
+from compare_at_best_wins import (
+    METAFIELD_KEY,
+    METAFIELD_NAMESPACE,
+    PRICE_BASIS_COMPARE_AT_BEST_WINS,
+    build_function_configuration,
+)
 from coupon_config import COUPON_SHOPIFY_SITES
 
 
@@ -36,6 +42,44 @@ def build_shopify_discount_payload(data: dict, customer_segment_id: str = "") ->
     return payload
 
 
+def build_shopify_app_discount_payload(data: dict, function_id: str, customer_segment_id: str = "") -> dict:
+    if not function_id:
+        raise ValueError("Falta function_id de Shopify Discount Function.")
+    customer_context = {"all": True}
+    if customer_segment_id:
+        customer_context = {"customerSegments": {"add": [customer_segment_id]}}
+
+    payload = {
+        "title": data["nombreInterno"].strip() or data["codigoCupon"].strip(),
+        "code": data["codigoCupon"].strip().upper(),
+        "functionId": function_id,
+        "startsAt": build_iso_datetime(data["fechaInicio"], data["horaInicio"]),
+        "endsAt": build_iso_datetime(data["fechaFin"], data["horaFin"]),
+        "appliesOncePerCustomer": bool(data.get("unaVezPorCliente")),
+        "combinesWith": {
+            "productDiscounts": bool(data.get("combinaProducto")),
+            "orderDiscounts": bool(data.get("combinaPedido")),
+            "shippingDiscounts": bool(data.get("combinaEnvio")),
+        },
+        "customerSelection": customer_context,
+        "metafields": [
+            {
+                "namespace": METAFIELD_NAMESPACE,
+                "key": METAFIELD_KEY,
+                "type": "json",
+                "value": json_dumps(build_function_configuration(data)),
+            }
+        ],
+    }
+    if int(data.get("limiteTotalUsos") or 0) > 0:
+        payload["usageLimit"] = int(data["limiteTotalUsos"])
+    if float(data.get("compraMinima") or 0) > 0:
+        payload["minimumRequirement"] = {
+            "subtotal": {"greaterThanOrEqualToSubtotal": str(round(float(data["compraMinima"]), 2))}
+        }
+    return payload
+
+
 def create_coupon_for_multiple_sites(
     data: dict,
     segment_ids_by_site: dict[str, str],
@@ -56,7 +100,15 @@ def create_coupon_for_multiple_sites(
         for code in codes:
             try:
                 code_data = {**data, "codigoCupon": code, "nombreInterno": data.get("nombreInterno") or code}
-                payload = build_shopify_discount_payload(code_data, segment_ids_by_site.get(site["id"], ""))
+                if code_data.get("priceBasis") == PRICE_BASIS_COMPARE_AT_BEST_WINS:
+                    function_id = code_data.get("functionIdsByShop", {}).get(site["shop_key"], "")
+                    payload = build_shopify_app_discount_payload(
+                        code_data,
+                        function_id=function_id,
+                        customer_segment_id=segment_ids_by_site.get(site["id"], ""),
+                    )
+                else:
+                    payload = build_shopify_discount_payload(code_data, segment_ids_by_site.get(site["id"], ""))
                 response = shopify_create(site["shop_key"], payload)
                 discount_id = response.get("codeDiscountNode", {}).get("id")
                 results.append(result_row(site, code_data, code, "success", "Cupon creado correctamente.", discount_id))
@@ -73,6 +125,12 @@ def build_discount_value(data: dict) -> dict:
     if tipo == "Monto fijo":
         return {"discountAmount": {"amount": str(round(value, 2)), "appliesOnEachItem": False}}
     return {"percentage": value / 100}
+
+
+def json_dumps(value: dict) -> str:
+    import json
+
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
 def build_iso_datetime(date_text: str, time_text: str) -> str:

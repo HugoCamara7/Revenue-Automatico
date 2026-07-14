@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from compare_at_best_wins import PRICE_BASIS_COMPARE_AT_BEST_WINS
 from coupon_parser import combine_datetime
 
 
-def validate_coupon_data(data: dict) -> list[str]:
+def validate_coupon_data(data: dict, function_ids_by_shop: dict[str, str] | None = None) -> list[str]:
     errors = []
     codes = data.get("couponCodes") or []
     if not codes and str(data.get("codigoCupon", "")).strip():
@@ -21,6 +22,20 @@ def validate_coupon_data(data: dict) -> list[str]:
         errors.append("El valor de descuento debe ser mayor a 0.")
     if tipo == "Porcentaje" and value > 100:
         errors.append("El porcentaje no puede ser mayor a 100.")
+    if data.get("priceBasis") == PRICE_BASIS_COMPARE_AT_BEST_WINS:
+        if tipo != "Porcentaje":
+            errors.append("Compare At Price - Best Wins solo esta disponible para descuentos porcentuales.")
+        if not data.get("selectedSites"):
+            pass
+        elif function_ids_by_shop is not None:
+            missing = []
+            for shop_key in data.get("selectedShopKeys", []):
+                if not function_ids_by_shop.get(shop_key):
+                    missing.append(shop_key)
+            if missing:
+                errors.append(
+                    "Falta compare_at_best_wins_function_id en Secrets para: " + ", ".join(sorted(missing)) + "."
+                )
     if float(data.get("compraMinima") or 0) < 0:
         errors.append("La compra minima no puede ser negativa.")
     if float(data.get("descuentoMaximo") or 0) < 0:

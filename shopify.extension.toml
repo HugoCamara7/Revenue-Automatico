@@ -1,0 +1,27 @@
+# Compare At Price - Best Wins Shopify Function
+
+Este folder contiene la implementacion de referencia para la Shopify Discount Function requerida por la app Streamlit.
+
+El repo actual no es una Shopify CLI app, por eso esta Function no se puede desplegar directamente desde aqui. Para usarla:
+
+1. Crear o abrir la Shopify app real vinculada a la tienda.
+2. Ejecutar `shopify app generate extension --template discount_function`.
+3. Elegir API estable `2026-04`.
+4. Configurar target `cart.lines.discounts.generate.run`.
+5. Copiar `input.graphql`.
+6. Integrar la logica de `src/run.rs` dentro del crate generado por Shopify CLI.
+7. Ejecutar `shopify app deploy`.
+8. Copiar el GID de la Function en Streamlit Secrets:
+
+```toml
+[shopify_sites.columbia]
+compare_at_best_wins_function_id = "gid://shopify/ShopifyFunction/xxxxxxxxxx"
+```
+
+La app Streamlit crea el descuento con `discountCodeAppCreate` y guarda la configuracion en el metafield:
+
+- namespace: `$app:compare-at-best-wins`
+- key: `function-configuration`
+- type: `json`
+
+No usar `discountCodeBasicCreate` para esta modalidad.

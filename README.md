@@ -82,6 +82,52 @@ allowed_emails = ["hugo.camara@forus.pe"]
 password = "CONTRASENA_SEGURA"
 ```
 
+## Cupón Compare At Price - Best Wins
+
+La app permite preparar cupones con base de calculo:
+
+- `Price actual`: crea un descuento nativo Shopify con `discountCodeBasicCreate`.
+- `Compare At Price - Best Wins`: requiere una Shopify Discount Function desplegada y crea el descuento con `discountCodeAppCreate`.
+
+Esta segunda modalidad no se puede resolver con Liquid, JavaScript del tema ni un descuento porcentual básico, porque Shopify aplicaria el porcentaje sobre el `Price` vigente. La Function debe calcular un descuento monetario por linea desde `Compare At Price` y aplicar solo la diferencia cuando el cupon ofrece mejor precio.
+
+Secrets requeridos por sitio:
+
+```toml
+[shopify_sites.columbia]
+shop_domain = "columbia.myshopify.com"
+admin_access_token = "shpat_xxxxxxxxxxxxxxxxx"
+api_version = "2026-04"
+compare_at_best_wins_function_id = "gid://shopify/ShopifyFunction/xxxxxxxxxx"
+```
+
+Antes de activar esta modalidad confirma:
+
+- La tienda y la app permiten Shopify Functions.
+- Existe una extension Discount Function con target `cart.lines.discounts.generate.run`.
+- La app esta vinculada con Shopify CLI y puede ejecutar `shopify app deploy`.
+- El token tiene `write_discounts`.
+- Si es custom app y la tienda no permite esta extension, usar una app publica compatible o convertir el proyecto en una app publica/distribuible.
+
+Configuracion guardada en metafield del descuento:
+
+```json
+{
+  "percentage": 20,
+  "price_basis": "compare_at_price",
+  "strategy": "best_wins",
+  "missing_compare_at_behavior": "use_current_price",
+  "applies_to": "all_products",
+  "product_ids": [],
+  "variant_ids": [],
+  "collection_ids": [],
+  "excluded_product_ids": [],
+  "excluded_variant_ids": [],
+  "maximum_discount_amount": null,
+  "message": "Se aplico el mejor precio disponible"
+}
+```
+
 ## Aviso por correo
 
 Opcionalmente la app puede enviar el Excel generado por correo al terminar.
