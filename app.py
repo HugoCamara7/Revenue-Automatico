@@ -1143,18 +1143,19 @@ def create_shopify_app_coupon(shop_key: str, payload: dict) -> dict:
     mutation = """
     mutation CreateDiscountCodeApp($codeAppDiscount: DiscountCodeAppInput!) {
       discountCodeAppCreate(codeAppDiscount: $codeAppDiscount) {
-        codeDiscountNode {
-          id
-          codeDiscount {
-            ... on DiscountCodeApp {
-              title
-              startsAt
-              endsAt
-              codes(first: 10) {
-                nodes {
-                  code
-                }
-              }
+        codeAppDiscount {
+          discountId
+          title
+          startsAt
+          endsAt
+          status
+          usageLimit
+          appDiscountType {
+            functionId
+          }
+          codes(first: 10) {
+            nodes {
+              code
             }
           }
         }

@@ -120,7 +120,11 @@ def create_coupon_for_multiple_sites(
                 else:
                     payload = build_shopify_discount_payload(code_data, segment_ids_by_site.get(site["id"], ""))
                 response = shopify_create(site["shop_key"], payload)
-                discount_id = response.get("codeDiscountNode", {}).get("id")
+                discount_id = (
+                    response.get("codeDiscountNode", {}).get("id")
+                    or response.get("codeAppDiscount", {}).get("discountId")
+                    or response.get("codeAppDiscount", {}).get("id")
+                )
                 results.append(result_row(site, code_data, code, "success", "Cupon creado correctamente.", discount_id))
             except Exception as exc:
                 message = str(exc)
