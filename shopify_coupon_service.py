@@ -50,7 +50,7 @@ def build_shopify_app_discount_payload(
 ) -> dict:
     if not function_handle and not function_id:
         raise ValueError("Falta function_handle de Shopify Discount Function.")
-    customer_context = {"all": True}
+    customer_context = {"all": "ALL"}
     if customer_segment_id:
         customer_context = {"customerSegments": {"add": [customer_segment_id]}}
 
