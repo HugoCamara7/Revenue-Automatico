@@ -347,7 +347,7 @@ section[data-testid="stSidebar"] h3 { font-size: 15px !important; }
 .pill.red, .red, .error { background: var(--rojo-fondo) !important; color: var(--rojo) !important; }
 .pill.blue, .blue { background: var(--azul-suave) !important; color: var(--azul-fuerte) !important; }
 .pill.muted, .muted, .soft { background: var(--superficie-2) !important; color: var(--texto-suave) !important; }
-.pill.active, .active { background: var(--azul) !important; color: #fff !important; }
+.pill.active { background: var(--azul) !important; color: #fff !important; }
 
 .coupon-note, .coupon-warning, .status-card.warn {
   border-radius: var(--radio-sm);
@@ -407,6 +407,203 @@ section[data-testid="stSidebar"] h3 { font-size: 15px !important; }
   background: var(--azul-suave); color: var(--azul-fuerte);
   border-radius: var(--radio-xs); padding: 8px 12px; margin-top: 2px;
   font-weight: 600;
+}
+
+/* ---------- Sidebar fijo y navegacion propia ---------- */
+
+[data-testid="stSidebarNav"] { display: none !important; }
+[data-testid="stSidebarCollapseButton"],
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"],
+button[data-testid="stBaseButton-headerNoPadding"],
+section[data-testid="stSidebar"] [data-testid="stSidebarHeader"] button,
+section[data-testid="stSidebar"] button[kind="headerNoPadding"] { display: none !important; }
+[data-testid="stSidebarHeader"] { padding-bottom: 0 !important; height: 0 !important; min-height: 0 !important; }
+[data-testid="stSidebarResizeHandle"] { display: none !important; }
+section[data-testid="stSidebar"] {
+  transform: none !important;
+  visibility: visible !important;
+  min-width: 306px !important;
+}
+section[data-testid="stSidebar"][aria-expanded="false"] { margin-left: 0 !important; }
+
+.brand-card {
+  display: flex; align-items: center; gap: 12px;
+  background: linear-gradient(135deg, var(--navy) 0%, var(--navy-medio) 100%);
+  border-radius: var(--radio); padding: 15px 16px; margin-bottom: 16px;
+}
+.brand-icon {
+  width: 40px; height: 40px; flex: 0 0 40px;
+  border-radius: 11px; background: var(--azul);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 19px; font-weight: 800; color: #fff;
+}
+.brand-logo {
+  background: #fff; border-radius: 10px; padding: 7px 9px;
+  display: flex; align-items: center; flex: 0 0 auto;
+}
+.brand-logo img { height: 20px; width: auto; display: block; }
+.brand-nombre { font-size: 14.5px; font-weight: 800; color: #fff; line-height: 1.2; }
+.brand-sub { font-size: 11.5px; color: rgba(255, 255, 255, .62); margin-top: 2px; }
+
+section[data-testid="stSidebar"] .stButton > button {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 11px 14px !important;
+  border-radius: 12px !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  background: var(--superficie) !important;
+  border: 1px solid var(--linea) !important;
+  color: var(--texto) !important;
+  margin-bottom: 7px;
+}
+section[data-testid="stSidebar"] .stButton > button:hover {
+  border-color: var(--azul) !important;
+  color: var(--azul) !important;
+  transform: none;
+}
+section[data-testid="stSidebar"] .stButton > button[kind="primary"] {
+  background: var(--azul) !important;
+  border-color: var(--azul) !important;
+  color: #fff !important;
+  box-shadow: 0 5px 14px rgba(30, 94, 255, .26) !important;
+}
+section[data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"] {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--superficie);
+  border: 1px solid var(--linea);
+  border-radius: 12px;
+  padding: 11px 14px;
+  margin-bottom: 7px;
+  font-size: 14px; font-weight: 600;
+  color: var(--texto) !important;
+  text-decoration: none !important;
+}
+section[data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"]:hover {
+  border-color: var(--azul);
+  color: var(--azul) !important;
+}
+section[data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"] p { font-weight: 600; margin: 0; }
+
+/* ---------- Hero: contraste sobre fondo oscuro ---------- */
+
+.top-hero { display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
+.top-hero h1 { color: #fff !important; font-size: 25px !important; margin: 2px 0 4px !important; }
+.top-hero p { color: rgba(255, 255, 255, .82) !important; font-size: 13.5px; margin: 0; max-width: 620px; }
+.top-hero .eyebrow, .coupon-hero .eyebrow { color: #9dbcff !important; }
+.top-hero .pill, .coupon-hero .pill {
+  background: rgba(255, 255, 255, .15) !important;
+  color: #fff !important;
+}
+.top-hero .pill.green, .coupon-hero .pill.green {
+  background: rgba(16, 185, 129, .22) !important;
+  color: #6ee7b7 !important;
+}
+.top-hero .pill.orange { background: rgba(245, 158, 11, .2) !important; color: #fcd34d !important; }
+.hero-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+img.shopify-mini { height: 24px !important; width: auto !important; display: inline-block; }
+
+/* ---------- Pasos ---------- */
+
+.step-box {
+  display: flex; align-items: center; gap: 11px;
+  background: var(--superficie) !important;
+  color: var(--texto) !important;
+}
+.step-box.active {
+  border-color: var(--azul) !important;
+  box-shadow: 0 0 0 3px rgba(30, 94, 255, .10) !important;
+}
+.step-box.active .step-num { background: var(--azul); color: #fff; }
+.step-box .step-badge { margin-left: auto; }
+.step-badge.warn { background: var(--ambar-fondo) !important; color: var(--ambar) !important; }
+
+/* ---------- Uploader moderno ---------- */
+
+.upload-card {
+  background: var(--superficie);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra-sm);
+  padding: 16px 18px 6px;
+  margin-bottom: 12px;
+}
+.upload-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+.upload-icon {
+  width: 38px; height: 38px; flex: 0 0 38px;
+  border-radius: 11px; background: var(--azul-suave); color: var(--azul-fuerte);
+  display: flex; align-items: center; justify-content: center; font-size: 17px;
+}
+.upload-titulo { font-size: 14.5px; font-weight: 700; color: var(--navy); }
+.upload-sub { font-size: 12.5px; color: var(--texto-suave); }
+.upload-estado {
+  display: flex; align-items: center; gap: 8px;
+  border-radius: var(--radio-xs); padding: 8px 12px;
+  font-size: 12.5px; font-weight: 600; margin: 2px 0 12px;
+}
+.upload-estado.ok { background: var(--verde-fondo); color: var(--verde); }
+.upload-estado.pendiente { background: var(--superficie-2); color: var(--texto-suave); }
+
+div[data-testid="stFileUploaderDropzone"] {
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, var(--superficie-2) 100%) !important;
+  border: 1.6px dashed var(--linea-fuerte) !important;
+  border-radius: var(--radio) !important;
+  padding: 18px !important;
+  transition: all .15s ease;
+}
+div[data-testid="stFileUploaderDropzone"]:hover {
+  border-color: var(--azul) !important;
+  background: var(--azul-suave) !important;
+}
+div[data-testid="stFileUploaderDropzoneInstructions"] small { display: none !important; }
+div[data-testid="stFileUploaderDropzone"] button {
+  border-radius: var(--radio-sm) !important;
+  border: 1px solid var(--azul) !important;
+  color: var(--azul) !important;
+  font-weight: 600 !important;
+}
+div[data-testid="stFileUploaderFile"] { font-size: 13px; }
+
+/* ---------- Tarjetas de tienda (Centro de Control) ---------- */
+
+.tienda-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  gap: 14px;
+  margin-bottom: 8px;
+}
+.tienda-card {
+  background: var(--superficie);
+  border: 1px solid var(--linea);
+  border-left: 4px solid var(--linea-fuerte);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra-sm);
+  padding: 16px 18px;
+}
+.tienda-card.listo { border-left-color: var(--verde); }
+.tienda-card.solo_precio_actual { border-left-color: var(--ambar); }
+.tienda-card.sin_configurar { border-left-color: var(--linea-fuerte); }
+.tienda-card.error { border-left-color: var(--rojo); }
+.tienda-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 12px;
+}
+.tienda-nombre { font-size: 15.5px; font-weight: 700; color: var(--navy); }
+.tienda-datos { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 14px; }
+.dato-linea { display: flex; flex-direction: column; gap: 1px; }
+.dato-tag {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--texto-tenue);
+}
+.dato-valor { font-size: 13px; font-weight: 600; color: var(--texto); word-break: break-all; }
+.tienda-detalle {
+  margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--linea);
+  font-size: 12.5px; color: var(--ambar); line-height: 1.55;
 }
 
 /* ---------- Responsive ---------- */
@@ -528,6 +725,37 @@ def panel(titulo: str, subtitulo: str = "") -> None:
         partes.append('<div class="preview-sub">' + subtitulo + "</div>")
     partes.append("</div>")
     st.markdown("".join(partes), unsafe_allow_html=True)
+
+
+def encabezado_uploader(icono: str, titulo: str, subtitulo: str) -> None:
+    """Cabecera del bloque de carga: icono, titulo y formatos aceptados."""
+    st.markdown(
+        '<div class="upload-head">'
+        '<div class="upload-icon">' + icono + "</div>"
+        "<div>"
+        '<div class="upload-titulo">' + titulo + "</div>"
+        '<div class="upload-sub">' + subtitulo + "</div>"
+        "</div></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def estado_uploader(archivo, pendiente: str = "Sin archivo seleccionado") -> None:
+    """Linea de estado debajo del uploader."""
+    if archivo is None:
+        st.markdown(
+            '<div class="upload-estado pendiente">' + pendiente + "</div>",
+            unsafe_allow_html=True,
+        )
+        return
+    try:
+        peso = " · " + str(round(len(archivo.getbuffer()) / 1048576, 2)) + " MB"
+    except Exception:
+        peso = ""
+    st.markdown(
+        '<div class="upload-estado ok">Cargado: ' + str(archivo.name) + peso + "</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def badge(texto: str, tono: str = "blue") -> str:

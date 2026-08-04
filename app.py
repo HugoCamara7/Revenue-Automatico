@@ -24,7 +24,18 @@ from generar_matrixify_descuentos import (
     read_matrixify,
 )
 from shopify_coupon_service import create_coupon_for_multiple_sites
-from ui_kit import ancho, aviso, encabezado, fila_kpis, imagen_data_uri, inject_css, panel, seccion
+from ui_kit import (
+    ancho,
+    aviso,
+    encabezado,
+    encabezado_uploader,
+    estado_uploader,
+    fila_kpis,
+    imagen_data_uri,
+    inject_css,
+    panel,
+    seccion,
+)
 
 
 SITES = {
@@ -56,7 +67,11 @@ SITES = {
 }
 
 
-st.set_page_config(page_title="Matrixify Revenue", layout="wide")
+st.set_page_config(
+    page_title="Revenue Control Center",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 inject_css()
 
@@ -517,18 +532,23 @@ def render_login() -> None:
 
 
 
-def render_sidebar_logo() -> None:
+def render_sidebar_marca() -> None:
+    """Bloque de marca: logo arriba a la izquierda + nombre de la plataforma."""
     logo_src = imagen_data_uri("forus_logo.png")
-    if logo_src:
-        st.sidebar.markdown(
-            f'<div class="sidebar-logo-card"><img src="{logo_src}" alt="FORUS"></div>',
-            unsafe_allow_html=True,
-        )
-    else:
-        st.sidebar.markdown(
-            '<div class="sidebar-logo-card"><h2>FORUS</h2><div>CONSUMER FANATIC</div></div>',
-            unsafe_allow_html=True,
-        )
+    marca = (
+        '<div class="brand-logo"><img src="' + logo_src + '" alt="FORUS"></div>'
+        if logo_src
+        else '<div class="brand-icon">R</div>'
+    )
+    st.sidebar.markdown(
+        '<div class="brand-card">'
+        + marca
+        + "<div>"
+        '<div class="brand-nombre">Revenue Control Center</div>'
+        '<div class="brand-sub">Cupones y descuentos Shopify</div>'
+        "</div></div>",
+        unsafe_allow_html=True,
+    )
 
 
 def render_sidebar_identidad() -> None:
@@ -554,27 +574,22 @@ def render_sidebar_identidad() -> None:
 
 
 def render_top_header(site_name: str) -> None:
-    bigquery_badge = "BigQuery obligatorio" if bigquery_is_configured() else "Falta BigQuery"
-    matrixify_badge = "IDs Matrixify"
-    shopify_html = ""
+    bigquery_ok = bigquery_is_configured()
     shopify_src = imagen_data_uri("shopify_logo.png")
-    if shopify_src:
-        shopify_html = f'<img class="shopify-mini" src="{shopify_src}" alt="Shopify">'
+    shopify_html = '<img class="shopify-mini" src="' + shopify_src + '" alt="Shopify">' if shopify_src else ""
     st.markdown(
-        f"""
-        <div class="top-hero">
-          <div>
-            <div class="eyebrow">REVENUE DISCOUNT CENTER</div>
-            <h1>{site_name}<span class="hero-arrow">&rsaquo;</span>Matrixify</h1>
-            <p>Genera cargas de descuentos desde COD MOD COL, cruzando BigQuery con el ultimo Matrixify del sitio.</p>
-          </div>
-          <div class="hero-right">
-            <span class="pill">{bigquery_badge}</span>
-            <span class="pill green">{matrixify_badge}</span>
-            {shopify_html}
-          </div>
-        </div>
-        """,
+        '<div class="top-hero"><div>'
+        '<div class="eyebrow">Modulo Revenue</div>'
+        "<h1>" + site_name + '<span class="hero-arrow"> &rsaquo; </span>Matrixify</h1>'
+        "<p>Genera cargas de descuentos desde COD MOD COL, cruzando BigQuery con el ultimo Matrixify del sitio.</p>"
+        "</div>"
+        '<div class="hero-right">'
+        '<span class="pill ' + ("green" if bigquery_ok else "orange") + '">'
+        + ("BigQuery conectado" if bigquery_ok else "Falta BigQuery")
+        + "</span>"
+        '<span class="pill">IDs Matrixify</span>'
+        + shopify_html
+        + "</div></div>",
         unsafe_allow_html=True,
     )
 
@@ -763,17 +778,42 @@ if not st.session_state.get("authenticated"):
     st.stop()
 
 
-render_sidebar_logo()
+render_sidebar_marca()
+
+MODULOS = (
+    ("cupones", "Cupones", ":material/sell:", "Generar cupones"),
+    ("revenue", "Revenue", ":material/table_view:", "Carga de descuentos"),
+)
+
+if "modulo_activo" not in st.session_state:
+    st.session_state["modulo_activo"] = "revenue"
+
+with st.sidebar:
+    st.markdown('<div class="sidebar-label">Navegacion</div>', unsafe_allow_html=True)
+    for clave_modulo, etiqueta_modulo, icono_modulo, _nombre in MODULOS:
+        if st.button(
+            etiqueta_modulo,
+            icon=icono_modulo,
+            key="nav_" + clave_modulo,
+            type="primary" if st.session_state["modulo_activo"] == clave_modulo else "secondary",
+            **ancho(),
+        ):
+            st.session_state["modulo_activo"] = clave_modulo
+            st.rerun()
+    if st.button("Centro de Control", icon=":material/monitoring:", key="nav_centro", **ancho()):
+        try:
+            st.switch_page("pages/1_Centro_de_control.py")
+        except Exception:
+            st.warning("Falta la carpeta pages/ con el Centro de Control.")
+
+module = next(
+    nombre for clave_modulo, _etiqueta, _icono, nombre in MODULOS
+    if clave_modulo == st.session_state["modulo_activo"]
+)
+
 render_sidebar_identidad()
 
 with st.sidebar:
-    st.markdown('<div class="sidebar-label">Modulo</div>', unsafe_allow_html=True)
-    module = st.radio(
-        "Modulo",
-        ["Carga de descuentos", "Generar cupones"],
-        label_visibility="collapsed",
-    )
-
     st.markdown('<div class="sidebar-label">Sitio activo</div>', unsafe_allow_html=True)
     site_name = st.selectbox("Sitio activo", list(SITES.keys()), label_visibility="collapsed")
     site = SITES[site_name]
@@ -809,7 +849,6 @@ with st.sidebar:
             + "</div>",
             unsafe_allow_html=True,
         )
-
 
 
 def a_fecha(valor, defecto=None):
@@ -1303,14 +1342,23 @@ seccion(
 
 upload_left, upload_right = st.columns(2)
 with upload_left:
-    revenue_file = st.file_uploader("Revenue / input comercial", type=["xlsx", "xlsm"], key="revenue")
+    encabezado_uploader("XLS", "Revenue comercial", "Arrastra el archivo o buscalo en tu equipo. XLSX o XLSM.")
+    revenue_file = st.file_uploader(
+        "Revenue / input comercial",
+        type=["xlsx", "xlsm"],
+        key="revenue",
+        label_visibility="collapsed",
+    )
+    estado_uploader(revenue_file, "Falta el Revenue comercial")
 with upload_right:
+    encabezado_uploader("CAT", "Ultimo Matrixify de " + site_name, "Debe ser del mismo sitio para conservar los IDs.")
     matrixify_file = st.file_uploader(
-        "Ultimo Matrixify de " + site_name,
+        "Ultimo Matrixify",
         type=["xlsx", "xlsm"],
         key="matrixify",
-        help="Debe ser del mismo sitio destino para conservar Product ID y Variant ID.",
+        label_visibility="collapsed",
     )
+    estado_uploader(matrixify_file, "Falta el catalogo Matrixify")
 
 render_steps(revenue_file is not None, matrixify_file is not None, target=steps_placeholder)
 
