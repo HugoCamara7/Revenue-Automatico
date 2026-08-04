@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import base64
 import io
 import json
 import smtplib
 import tempfile
 from email.message import EmailMessage
+from datetime import date, time
 from pathlib import Path
 from urllib import request
 from urllib.error import HTTPError, URLError
@@ -13,7 +13,7 @@ from urllib.error import HTTPError, URLError
 import pandas as pd
 import streamlit as st
 
-from coupon_config import COUPON_SHOPIFY_SITES, QUICK_TEMPLATES
+from coupon_config import QUICK_TEMPLATES
 from coupon_parser import default_coupon_data, parse_bulk_codes, parse_coupon_text, unique_sites
 from coupon_validation import validate_coupon_data
 from compare_at_best_wins import PRICE_BASIS_COMPARE_AT_BEST_WINS, PRICE_BASIS_CURRENT, build_preview_rows
@@ -24,6 +24,7 @@ from generar_matrixify_descuentos import (
     read_matrixify,
 )
 from shopify_coupon_service import create_coupon_for_multiple_sites
+from ui_kit import ancho, aviso, encabezado, fila_kpis, imagen_data_uri, inject_css, panel, seccion
 
 
 SITES = {
@@ -57,783 +58,7 @@ SITES = {
 
 st.set_page_config(page_title="Matrixify Revenue", layout="wide")
 
-st.markdown(
-    """
-    <style>
-    header[data-testid="stHeader"] { display: none; }
-    [data-testid="stToolbar"] { display: none; }
-    [data-testid="stDecoration"] { display: none; }
-    #MainMenu { visibility: hidden; }
-    footer { visibility: hidden; }
-    .stApp { background: #f4f7fb; color: #031b4e; }
-    [data-testid="stSidebar"] {
-        background: #eef3fa;
-        border-right: 1px solid #dce7f5;
-        min-width: 300px !important;
-        width: 300px !important;
-        transform: translateX(0) !important;
-        visibility: visible !important;
-    }
-    [data-testid="collapsedControl"],
-    [data-testid="stSidebarCollapseButton"],
-    button[title="Close sidebar"],
-    button[title="Open sidebar"] {
-        display: none !important;
-        visibility: hidden !important;
-        pointer-events: none !important;
-    }
-    [data-testid="stSidebar"] > div:first-child { padding: 22px 24px 28px; }
-    .block-container {
-        max-width: 1180px;
-        padding-top: 30px;
-        padding-bottom: 42px;
-    }
-    .sidebar-logo-card {
-        background: #ffffff;
-        border: 1px solid #d7e4f5;
-        border-radius: 24px;
-        padding: 24px 22px;
-        margin-bottom: 28px;
-        box-shadow: 0 20px 45px rgba(16, 58, 120, 0.08);
-        min-height: 92px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-    .sidebar-logo-card img {
-        max-width: 210px;
-        width: 100%;
-        display: block;
-        object-fit: contain;
-    }
-    .sidebar-label {
-        color: #031b4e;
-        font-weight: 800;
-        margin: 24px 0 10px;
-        font-size: 15px;
-    }
-    .sidebar-brand-card {
-        background: #ffffff;
-        border: 1px solid #d7e4f5;
-        border-radius: 20px;
-        padding: 24px;
-        margin: 12px 0 28px;
-        color: #1328a0;
-        font-weight: 900;
-        letter-spacing: .02em;
-        box-shadow: 0 14px 32px rgba(16, 58, 120, 0.06);
-    }
-    .sidebar-status-card {
-        background: #ffffff;
-        border: 1px solid #d7e4f5;
-        border-radius: 22px;
-        padding: 20px;
-        margin-top: 28px;
-        box-shadow: 0 16px 36px rgba(16, 58, 120, 0.07);
-    }
-    .connection-ok {
-        background: #e6f8ee;
-        color: #064e2a;
-        border-radius: 8px;
-        padding: 14px 16px;
-        margin: 14px 0;
-    }
-    .top-hero {
-        background: #ffffff;
-        border: 1px solid #d7e4f5;
-        border-radius: 0;
-        padding: 28px 32px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 24px;
-        margin-bottom: 36px;
-    }
-    .eyebrow {
-        color: #0086d9;
-        font-weight: 900;
-        font-size: 12px;
-        letter-spacing: .38em;
-        margin-bottom: 10px;
-    }
-    .top-hero h1 {
-        color: #031b4e;
-        font-size: 32px;
-        line-height: 1.05;
-        margin: 0 0 10px;
-        letter-spacing: 0;
-    }
-    .hero-arrow {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 34px;
-        height: 34px;
-        margin: 0 8px;
-        border-radius: 999px;
-        background: #eef6ff;
-        color: #006bd6;
-        font-size: 22px;
-        font-weight: 900;
-        vertical-align: middle;
-    }
-    .top-hero p {
-        color: #536b92;
-        margin: 0;
-        font-size: 15px;
-    }
-    .hero-right {
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        white-space: nowrap;
-    }
-    .pill {
-        border-radius: 999px;
-        padding: 9px 16px;
-        font-size: 12px;
-        font-weight: 900;
-        border: 1px solid #b9d7ff;
-        background: #eef6ff;
-        color: #1238bf;
-    }
-    .pill.green {
-        border-color: #9ee7bf;
-        background: #eafaf2;
-        color: #007a3d;
-    }
-    .shopify-mini {
-        width: 52px;
-        height: 52px;
-        object-fit: contain;
-    }
-    .steps-card {
-        background: #ffffff;
-        border: 1px solid #d7e4f5;
-        border-radius: 28px;
-        padding: 22px;
-        margin-bottom: 34px;
-        box-shadow: 0 22px 48px rgba(16, 58, 120, 0.08);
-    }
-    .steps-grid {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 14px;
-    }
-    .step-box {
-        border: 1px solid #dce7f5;
-        background: #f9fbfe;
-        border-radius: 18px;
-        padding: 22px 18px;
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        min-height: 96px;
-    }
-    .step-box.active {
-        background: #eef6ff;
-        border-color: #9dc8ff;
-    }
-    .step-num {
-        width: 44px;
-        height: 44px;
-        border-radius: 50%;
-        display: grid;
-        place-items: center;
-        color: #006bd6;
-        font-weight: 900;
-        background: #ffffff;
-        box-shadow: 0 10px 22px rgba(15, 55, 110, 0.10);
-        flex: 0 0 auto;
-    }
-    .step-title {
-        font-weight: 900;
-        font-size: 18px;
-        color: #031b4e;
-        margin-bottom: 4px;
-    }
-    .step-sub {
-        color: #5f7194;
-        font-size: 13px;
-    }
-    .step-badge {
-        margin-left: auto;
-        border-radius: 999px;
-        padding: 7px 11px;
-        border: 1px solid #a7e8c4;
-        background: #e9fbf1;
-        color: #007a3d;
-        font-weight: 900;
-        font-size: 12px;
-    }
-    .step-badge.warn {
-        border-color: #ffd16a;
-        background: #fff8df;
-        color: #a76700;
-    }
-    .step-badge.blue {
-        border-color: #a9c9ff;
-        background: #eef6ff;
-        color: #173bbd;
-    }
-    .main-card {
-        background: #ffffff;
-        border: 1px solid #d7e4f5;
-        border-radius: 28px;
-        padding: 34px 34px 30px;
-        margin-bottom: 28px;
-        box-shadow: 0 22px 48px rgba(16, 58, 120, 0.06);
-    }
-    .main-card h2 {
-        margin: 0 0 12px;
-        color: #031b4e;
-        font-size: 28px;
-        letter-spacing: 0;
-    }
-    .muted {
-        color: #536b92;
-        font-size: 15px;
-        margin-bottom: 26px;
-    }
-    .source-grid {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 16px;
-        margin: 24px 0;
-    }
-    .source-box {
-        border: 1px solid #d7e4f5;
-        background: #f9fbfe;
-        border-radius: 18px;
-        padding: 22px;
-        min-height: 98px;
-    }
-    .source-box.active {
-        background: #eef6ff;
-        border-color: #9dc8ff;
-    }
-    .source-box.green {
-        background: #eafaf2;
-        border-color: #9ee7bf;
-    }
-    .source-box.warn {
-        background: #fff8df;
-        border-color: #ffd16a;
-    }
-    .source-title {
-        font-weight: 900;
-        color: #031b4e;
-        margin-bottom: 12px;
-    }
-    .source-sub {
-        color: #5f7194;
-        font-size: 14px;
-    }
-    .status-card {
-        background: #ffffff;
-        border: 1px solid #d7e4f5;
-        border-radius: 22px;
-        padding: 22px;
-        margin: 22px 0;
-    }
-    .result-grid {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 14px;
-        margin: 24px 0;
-    }
-    .result-card {
-        background: #ffffff;
-        border: 1px solid #d7e4f5;
-        border-radius: 20px;
-        padding: 20px;
-        box-shadow: 0 16px 34px rgba(16, 58, 120, 0.06);
-    }
-    .result-card.good { border-color: #9ee7bf; background: #f1fbf6; }
-    .result-card.warn { border-color: #ffd16a; background: #fffaf0; }
-    .result-card.bad { border-color: #ffb3b3; background: #fff4f4; }
-    .result-label {
-        color: #5f7194;
-        font-size: 12px;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: .05em;
-        margin-bottom: 8px;
-    }
-    .result-value {
-        color: #031b4e;
-        font-size: 28px;
-        font-weight: 950;
-        line-height: 1;
-    }
-    .preview-panel {
-        background: #ffffff;
-        border: 1px solid #d7e4f5;
-        border-radius: 22px;
-        padding: 22px;
-        margin: 20px 0;
-    }
-    .preview-title {
-        color: #031b4e;
-        font-weight: 950;
-        font-size: 20px;
-        margin-bottom: 6px;
-    }
-    .preview-sub {
-        color: #5f7194;
-        font-size: 14px;
-        margin-bottom: 16px;
-    }
-    .login-shell {
-        min-height: 92vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: #142238;
-        margin: -30px calc(50% - 50vw) -42px;
-        padding: 28px;
-    }
-    .login-card {
-        width: min(560px, 94vw);
-        background: #ffffff;
-        border-radius: 20px;
-        overflow: hidden;
-        box-shadow: 0 28px 70px rgba(0, 0, 0, .24);
-    }
-    .login-hero {
-        background: linear-gradient(145deg, #2c73ff, #1654ef);
-        color: white;
-        padding: 40px 38px 44px;
-        text-align: center;
-    }
-    .login-brand-row {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        gap: 26px;
-        margin-bottom: 28px;
-    }
-    .login-logo, .login-shopify {
-        background: #ffffff;
-        border-radius: 10px;
-        padding: 10px 18px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 62px;
-    }
-    .login-logo img { max-width: 210px; max-height: 62px; object-fit: contain; }
-    .login-shopify img { width: 48px; height: 48px; object-fit: contain; }
-    .login-divider {
-        width: 1px;
-        height: 54px;
-        background: rgba(255,255,255,.52);
-    }
-    .login-title {
-        font-size: 34px;
-        font-weight: 950;
-        margin: 0 0 12px;
-        letter-spacing: 0;
-    }
-    .login-sub {
-        font-size: 18px;
-        font-weight: 800;
-        opacity: .95;
-    }
-    .login-body {
-        padding: 38px 40px 28px;
-    }
-    .login-foot {
-        text-align: center;
-        color: #62718a;
-        font-weight: 900;
-        padding: 12px 0 8px;
-    }
-    .coupon-hero {
-        background:
-            radial-gradient(circle at 90% 10%, rgba(255,255,255,.18), transparent 26%),
-            linear-gradient(135deg, #1426a8, #2d74ff);
-        color: white;
-        border-radius: 28px;
-        padding: 34px 38px;
-        margin-bottom: 24px;
-        box-shadow: 0 22px 48px rgba(22, 84, 239, .18);
-        display: flex;
-        justify-content: space-between;
-        gap: 24px;
-        align-items: center;
-    }
-    .coupon-hero h2 {
-        margin: 0 0 10px;
-        font-size: 34px;
-        letter-spacing: 0;
-    }
-    .coupon-hero p {
-        margin: 0;
-        opacity: .9;
-        max-width: 720px;
-    }
-    .coupon-hero-mini {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(120px, 1fr));
-        gap: 12px;
-        min-width: 280px;
-    }
-    .coupon-hero-chip {
-        border: 1px solid rgba(255,255,255,.34);
-        background: rgba(255,255,255,.14);
-        border-radius: 18px;
-        padding: 14px 16px;
-        font-weight: 900;
-        color: #ffffff;
-        backdrop-filter: blur(10px);
-    }
-    .coupon-hero-chip span {
-        display: block;
-        font-size: 12px;
-        opacity: .78;
-        margin-top: 4px;
-        font-weight: 700;
-    }
-    .coupon-card {
-        background: white;
-        border: 1px solid #d7e4f5;
-        border-radius: 24px;
-        padding: 28px;
-        margin: 18px 0;
-        box-shadow: 0 18px 42px rgba(16, 58, 120, 0.06);
-    }
-    .coupon-card.soft {
-        background: linear-gradient(180deg, #ffffff, #f8fbff);
-    }
-    .coupon-section-head {
-        display: flex;
-        justify-content: space-between;
-        gap: 18px;
-        align-items: flex-start;
-        margin-bottom: 20px;
-    }
-    .coupon-section-head h3 {
-        margin: 0 0 8px;
-        color: #031b4e;
-        font-size: 24px;
-        letter-spacing: 0;
-    }
-    .coupon-section-head p {
-        margin: 0;
-        color: #5f7194;
-        font-size: 14px;
-    }
-    .coupon-badge {
-        border-radius: 999px;
-        padding: 9px 14px;
-        background: #eef6ff;
-        border: 1px solid #b9d7ff;
-        color: #1238bf;
-        font-weight: 900;
-        font-size: 12px;
-        white-space: nowrap;
-    }
-    .coupon-kpi-grid {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 14px;
-        margin: 8px 0 18px;
-    }
-    .coupon-kpi {
-        background: #f8fbff;
-        border: 1px solid #d7e4f5;
-        border-radius: 18px;
-        padding: 16px;
-    }
-    .coupon-kpi b {
-        display: block;
-        color: #031b4e;
-        font-size: 20px;
-        margin-bottom: 4px;
-    }
-    .coupon-kpi span {
-        color: #5f7194;
-        font-size: 12px;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: .04em;
-    }
-    .coupon-chip-row {
-        display: grid;
-        grid-template-columns: repeat(7, minmax(0, 1fr));
-        gap: 12px;
-        margin: 14px 0 18px;
-    }
-    .coupon-note {
-        border: 1px solid #cde8d7;
-        background: #edfbf2;
-        color: #0a6336;
-        border-radius: 16px;
-        padding: 14px 16px;
-        font-weight: 800;
-        margin: 10px 0 0;
-    }
-    .coupon-warning {
-        border: 1px solid #ffd1d1;
-        background: #fff2f2;
-        color: #bc2727;
-        border-radius: 16px;
-        padding: 14px 16px;
-        font-weight: 800;
-        margin: 12px 0;
-    }
-    .coupon-site-count {
-        color: #536b92;
-        font-weight: 800;
-        margin-top: 8px;
-    }
-    .coupon-page-head {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 18px;
-        margin: 8px 0 24px;
-    }
-    .coupon-page-head h1 {
-        color: #111b46;
-        font-size: 34px;
-        line-height: 1.05;
-        margin: 0 0 8px;
-        letter-spacing: 0;
-    }
-    .coupon-page-head p {
-        color: #5c6780;
-        margin: 0;
-        font-size: 15px;
-    }
-    .coupon-head-actions {
-        display: flex;
-        gap: 12px;
-        white-space: nowrap;
-    }
-    .coupon-ghost-action,
-    .coupon-red-action {
-        border-radius: 10px;
-        padding: 14px 22px;
-        font-weight: 950;
-        border: 1px solid #d7deec;
-        background: #ffffff;
-        color: #1f2b62;
-        box-shadow: 0 12px 26px rgba(24, 38, 82, .06);
-    }
-    .coupon-red-action {
-        border-color: #ff3c3c;
-        background: #ff3838;
-        color: #ffffff;
-    }
-    .coupon-builder-card {
-        background: #ffffff;
-        border: 1px solid #dbe3f1;
-        border-radius: 16px;
-        padding: 22px;
-        margin: 16px 0;
-        box-shadow: 0 18px 44px rgba(31, 45, 86, .07);
-    }
-    .coupon-builder-card.tight {
-        padding: 18px 20px;
-    }
-    .coupon-step-line {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        margin-bottom: 14px;
-    }
-    .coupon-step-num {
-        width: 24px;
-        height: 24px;
-        border-radius: 8px;
-        display: grid;
-        place-items: center;
-        background: #2b2faa;
-        color: #ffffff;
-        font-size: 12px;
-        font-weight: 950;
-        flex: 0 0 auto;
-    }
-    .coupon-step-title {
-        color: #111b46;
-        font-size: 16px;
-        font-weight: 950;
-        margin: 0;
-    }
-    .coupon-step-sub {
-        color: #5f6f8d;
-        font-size: 13px;
-        margin: -6px 0 14px 36px;
-    }
-    .coupon-summary-grid {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 12px;
-        margin: 16px 0;
-    }
-    .coupon-summary-card {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        background: #ffffff;
-        border: 1px solid #e1e7f2;
-        border-radius: 16px;
-        padding: 20px;
-        min-height: 94px;
-        box-shadow: 0 16px 34px rgba(31, 45, 86, .06);
-    }
-    .coupon-summary-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 16px;
-        display: grid;
-        place-items: center;
-        background: #eef0ff;
-        color: #2b2faa;
-        font-weight: 950;
-        font-size: 20px;
-        flex: 0 0 auto;
-    }
-    .coupon-summary-icon.red { background:#fff0f2; color:#ff3434; }
-    .coupon-summary-icon.green { background:#e9fbf2; color:#00a35b; }
-    .coupon-summary-icon.orange { background:#fff5e8; color:#ff7a00; }
-    .coupon-summary-label {
-        color: #8a94aa;
-        font-size: 11px;
-        font-weight: 950;
-        letter-spacing: .04em;
-        text-transform: uppercase;
-        margin-bottom: 6px;
-    }
-    .coupon-summary-value {
-        color: #111b46;
-        font-size: 22px;
-        line-height: 1.1;
-        font-weight: 950;
-    }
-    .coupon-summary-sub {
-        color: #5f6f8d;
-        font-size: 12px;
-        margin-top: 4px;
-    }
-    .coupon-form-grid {
-        display: grid;
-        grid-template-columns: minmax(0, 1.35fr) minmax(330px, .95fr);
-        gap: 18px;
-        align-items: start;
-    }
-    .coupon-site-pill {
-        float: right;
-        border-radius: 999px;
-        padding: 8px 14px;
-        background: #e9fbf1;
-        color: #05a060;
-        font-weight: 950;
-        font-size: 12px;
-        margin-top: -42px;
-    }
-    .coupon-bottom-bar {
-        background: #ffffff;
-        border: 1px solid #e1e7f2;
-        border-radius: 18px;
-        padding: 18px 20px;
-        margin: 16px 0 2px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 20px;
-        box-shadow: 0 18px 44px rgba(31, 45, 86, .08);
-    }
-    .coupon-bottom-title {
-        color: #111b46;
-        font-weight: 950;
-        margin-bottom: 4px;
-    }
-    .coupon-bottom-sub {
-        color: #6a7691;
-        font-size: 13px;
-    }
-    .coupon-preview-card {
-        background: linear-gradient(135deg, #101b46, #2332b7);
-        border-radius: 24px;
-        color: #ffffff;
-        padding: 28px;
-        margin: 18px 0;
-        box-shadow: 0 22px 46px rgba(35, 50, 183, .22);
-    }
-    .coupon-preview-code {
-        font-size: 16px;
-        font-weight: 900;
-        letter-spacing: .08em;
-        opacity: .85;
-        text-transform: uppercase;
-        margin-bottom: 10px;
-    }
-    .coupon-preview-discount {
-        font-size: 42px;
-        line-height: 1;
-        font-weight: 950;
-        margin-bottom: 18px;
-    }
-    .coupon-preview-meta {
-        border-top: 1px solid rgba(255,255,255,.18);
-        padding-top: 10px;
-        margin-top: 10px;
-        color: rgba(255,255,255,.88);
-        font-weight: 750;
-    }
-    div[data-testid="stTextArea"] textarea {
-        min-height: 118px !important;
-        border-radius: 12px !important;
-        border: 1px solid #ccd6e8 !important;
-        background: #ffffff !important;
-        color: #111b46 !important;
-        font-weight: 700;
-        line-height: 1.55;
-    }
-    div[data-testid="stTextInput"] input,
-    div[data-testid="stNumberInput"] input,
-    div[data-baseweb="select"] > div {
-        border-radius: 10px !important;
-        border-color: #dbe3f1 !important;
-        background: #ffffff !important;
-        min-height: 44px;
-    }
-    label, .stCheckbox label {
-        color: #263252 !important;
-        font-weight: 800 !important;
-    }
-    div[data-testid="stFileUploader"] {
-        border: 1px dashed #9cc3ff;
-        border-radius: 18px;
-        padding: 18px;
-        background: #fbfdff;
-    }
-    .stButton button, .stDownloadButton button {
-        border-radius: 18px;
-        font-weight: 900;
-        min-height: 56px;
-    }
-    .stButton button[kind="primary"] {
-        background: #252aaa;
-        border-color: #252aaa;
-        box-shadow: 0 18px 36px rgba(37,42,170,.24);
-    }
-    @media (max-width: 900px) {
-        .steps-grid, .source-grid, .result-grid, .coupon-kpi-grid, .coupon-chip-row, .coupon-summary-grid, .coupon-form-grid { grid-template-columns: 1fr; }
-        .top-hero { flex-direction: column; align-items: flex-start; }
-        .coupon-hero { flex-direction: column; align-items: flex-start; }
-        .coupon-hero-mini { min-width: 0; width: 100%; }
-        .coupon-page-head, .coupon-bottom-bar { flex-direction: column; align-items: stretch; }
-        .coupon-head-actions { width: 100%; }
-        .coupon-ghost-action, .coupon-red-action { flex: 1; text-align: center; }
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+inject_css()
 
 
 def save_upload(uploaded_file, folder: Path) -> Path:
@@ -1175,16 +400,6 @@ def create_shopify_app_coupon(shop_key: str, payload: dict) -> dict:
     return result
 
 
-def image_data_uri(path: str) -> str:
-    file_path = Path(path)
-    if not file_path.exists():
-        return ""
-    suffix = file_path.suffix.lower().replace(".", "")
-    mime = "jpeg" if suffix in ("jpg", "jpeg") else "png"
-    encoded = base64.b64encode(file_path.read_bytes()).decode("ascii")
-    return f"data:image/{mime};base64,{encoded}"
-
-
 def plain_secret(value):
     if value is None:
         return None
@@ -1253,309 +468,57 @@ def valid_login(email: str, password: str) -> bool:
 
 
 def render_login() -> None:
+    inject_css(login=True)
+    forus_src = imagen_data_uri("forus_logo.png")
+    shopify_src = imagen_data_uri("shopify_logo.png")
+    forus_html = (
+        '<img class="login-logo" src="' + forus_src + '" alt="FORUS">'
+        if forus_src
+        else '<div class="login-title">FORUS</div>'
+    )
+    shopify_html = (
+        '<img class="login-shopify" src="' + shopify_src + '" alt="Shopify">' if shopify_src else ""
+    )
     st.markdown(
-        """
-        <style>
-        [data-testid="stSidebar"] { display: none !important; }
-        .stApp {
-            background: #142238;
-        }
-        header[data-testid="stHeader"] {
-            display: none !important;
-        }
-        section.main > div[data-testid="stMainBlockContainer"],
-        .block-container {
-            max-width: 620px !important;
-            min-height: 100vh;
-            padding: 70px 24px 38px !important;
-        }
-        .block-container > div:first-child {
-            width: min(520px, 92vw) !important;
-            margin: 0 auto !important;
-        }
-        .block-container div[data-testid="stVerticalBlock"] {
-            gap: 0 !important;
-        }
-        .block-container div[data-testid="stElementContainer"] {
-            margin: 0 !important;
-            box-sizing: border-box !important;
-        }
-        .block-container div[data-testid="stVerticalBlockBorderWrapper"] {
-            box-sizing: border-box !important;
-            width: min(520px, 92vw) !important;
-            max-width: 520px !important;
-            margin-left: auto !important;
-            margin-right: auto !important;
-            border: 0 !important;
-            box-shadow: none !important;
-            padding: 0 !important;
-            background: transparent !important;
-        }
-        .block-container div[data-testid="stVerticalBlockBorderWrapper"] > div {
-            background: transparent !important;
-            padding: 0 !important;
-        }
-        .login-card-anchor {
-            display: none;
-        }
-        .login-hero {
-            box-sizing: border-box !important;
-            width: min(520px, 92vw) !important;
-            margin: 0 auto !important;
-            border-radius: 18px 18px 0 0;
-            padding: 34px 34px 36px;
-            background: linear-gradient(145deg, #2d73ff, #1756f0) !important;
-            text-align: center;
-            box-shadow: none;
-        }
-        .login-brand-row {
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            gap: 20px;
-            margin-bottom: 24px;
-        }
-        .login-logo {
-            width: 200px;
-            min-height: 58px;
-            padding: 7px 14px;
-            background: #ffffff;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .login-logo img {
-            max-width: 178px;
-            max-height: 50px;
-        }
-        .login-shopify {
-            width: 56px;
-            height: 56px;
-            min-height: 56px;
-            padding: 8px;
-            background: #ffffff;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .login-shopify img {
-            width: 46px;
-            height: 46px;
-        }
-        .shopify-fallback {
-            width: 50px;
-            height: 50px;
-            border-radius: 10px;
-            background: #8ec63f;
-            color: white;
-            font-size: 34px;
-            font-weight: 950;
-            display: grid;
-            place-items: center;
-            font-family: Arial, sans-serif;
-        }
-        .login-title {
-            font-size: 30px;
-            line-height: 1.1;
-            white-space: nowrap;
-            color: #ffffff;
-            font-weight: 950;
-        }
-        .login-sub {
-            font-size: 16px;
-            color: #ffffff;
-            font-weight: 850;
-            opacity: .95;
-            margin-top: 12px;
-        }
-        div[data-testid="stForm"] {
-            box-sizing: border-box !important;
-            background: #ffffff !important;
-            border: 0 !important;
-            border-radius: 0 0 18px 18px !important;
-            padding: 30px 40px 34px !important;
-            margin: 0 !important;
-            box-shadow: 0 28px 70px rgba(0, 0, 0, .24) !important;
-        }
-        div[data-testid="stForm"] {
-            width: min(520px, 92vw) !important;
-            max-width: min(520px, 92vw) !important;
-        }
-        div[data-testid="stForm"] > div {
-            gap: 14px !important;
-            box-sizing: border-box !important;
-        }
-        div[data-testid="stForm"]::after {
-            content: "Sistema exclusivo para personal autorizado";
-            display: block;
-            margin-top: 26px;
-            color: #62718a;
-            text-align: center;
-            font-weight: 900;
-        }
-        .block-container div[data-testid="stElementContainer"]:has(.login-hero) + div[data-testid="stElementContainer"] {
-            box-sizing: border-box !important;
-            width: min(520px, 92vw) !important;
-            max-width: min(520px, 92vw) !important;
-            margin: 0 auto !important;
-            background: #ffffff !important;
-            border-radius: 0 0 18px 18px;
-            padding: 0 !important;
-            box-shadow: 0 28px 70px rgba(0, 0, 0, .24);
-        }
-        div[data-testid="stForm"] label,
-        div[data-testid="stForm"] p {
-            color: #031b4e !important;
-        }
-        div[data-testid="stFormSubmitButton"] button {
-            background: #ff454b !important;
-            border-color: #ff454b !important;
-            color: #ffffff !important;
-            border-radius: 9px !important;
-            min-height: 48px !important;
-            font-weight: 900 !important;
-            padding: 0 20px !important;
-            width: auto !important;
-            min-width: 92px !important;
-            box-shadow: none !important;
-        }
-        div[data-testid="stFormSubmitButton"] {
-            width: fit-content !important;
-        }
-        div[data-testid="stForm"] div[data-testid="stTextInput"] button {
-            background: #eef2f7 !important;
-            border-color: #eef2f7 !important;
-            color: #031b4e !important;
-            min-height: 44px !important;
-            box-shadow: none !important;
-            border-radius: 0 9px 9px 0 !important;
-            width: 52px !important;
-            padding: 0 !important;
-        }
-        div[data-testid="stForm"] div[data-testid="stTextInput"] button:hover,
-        div[data-testid="stForm"] div[data-testid="stTextInput"] button:focus {
-            background: #eef2f7 !important;
-            border-color: #eef2f7 !important;
-            color: #031b4e !important;
-            box-shadow: none !important;
-        }
-        div[data-testid="stForm"] div[data-testid="stTextInput"] input {
-            border: 1px solid #dce3ee !important;
-            background: #f7f9fc !important;
-            color: #031b4e !important;
-            min-height: 46px !important;
-            border-radius: 9px !important;
-            box-shadow: none !important;
-        }
-        div[data-testid="stForm"] div[data-testid="stTextInput"] input:focus {
-            border-color: #b8c8df !important;
-            box-shadow: 0 0 0 2px rgba(45, 115, 255, .12) !important;
-        }
-        .login-body {
-            display: none;
-        }
-        .login-foot {
-            display: none;
-        }
-        .login-brands-foot {
-            margin: 34px auto 0;
-            width: min(520px, 92vw);
-            color: #ffffff;
-            text-align: center;
-            font-weight: 950;
-            line-height: 1.9;
-        }
-        .login-message {
-            box-sizing: border-box;
-            width: min(520px, 92vw);
-            margin: 12px auto 0;
-            border-radius: 10px;
-            padding: 13px 18px;
-            font-size: 14px;
-            font-weight: 750;
-            line-height: 1.4;
-        }
-        .login-message.error {
-            background: rgba(255, 69, 75, .13);
-            color: #ff6970;
-            border: 1px solid rgba(255, 69, 75, .24);
-        }
-        .login-message.warn {
-            background: rgba(255, 213, 79, .12);
-            color: #c49415;
-            border: 1px solid rgba(255, 213, 79, .25);
-        }
-        @media (max-width: 620px) {
-            .block-container { padding: 28px 16px !important; }
-            .login-brand-row { gap: 14px; }
-            .login-logo { width: 176px; }
-            .login-shopify { width: 52px; height: 52px; min-height: 52px; }
-            .login-title { font-size: 26px; white-space: normal; }
-            .login-sub { font-size: 15px; }
-            .login-hero { padding: 30px 24px 34px; }
-            div[data-testid="stForm"] { padding: 28px 24px 32px !important; }
-        }
-        </style>
-        """,
+        '<div class="login-hero">'
+        '<div class="login-brand-row">' + forus_html + '<div class="login-divider"></div>' + shopify_html + "</div>"
+        '<div class="login-title">Revenue Control Center</div>'
+        '<div class="login-sub">Cupones y descuentos para las tiendas Shopify</div>'
+        "</div>",
         unsafe_allow_html=True,
     )
-    forus_src = image_data_uri("forus_logo.png")
-    shopify_src = image_data_uri("shopify_logo.png")
-    forus_html = f'<img src="{forus_src}" alt="FORUS">' if forus_src else "<b>FORUS</b>"
-    shopify_html = f'<img src="{shopify_src}" alt="Shopify">' if shopify_src else '<div class="shopify-fallback">S</div>'
-    auth_config = get_auth_config()
-    login_error = False
-    with st.container(border=True):
-        st.markdown('<div class="login-card-anchor"></div>', unsafe_allow_html=True)
-        st.markdown(
-            f"""
-            <div class="login-hero">
-              <div class="login-brand-row">
-                <div class="login-logo">{forus_html}</div>
-                <div class="login-divider"></div>
-                <div class="login-shopify">{shopify_html}</div>
-              </div>
-              <div class="login-title">Revenue Control Center</div>
-              <div class="login-sub">Sistema de descuentos y cupones Shopify</div>
-            </div>
-            """,
+
+    with st.form("login_form"):
+        mensaje = st.empty()
+        email = st.text_input("Correo electronico", placeholder="nombre@forus.pe")
+        password = st.text_input("Contrasena", type="password")
+        enviado = st.form_submit_button("Ingresar", type="primary")
+
+    if not get_auth_config():
+        mensaje.markdown(
+            '<div class="login-message">Configura usuarios en Secrets para habilitar el ingreso.</div>',
             unsafe_allow_html=True,
         )
-        with st.form("login_form"):
-            email = st.text_input("Correo electronico", placeholder="hugo.camara@forus.pe")
-            password = st.text_input("Contrasena", type="password")
-            submitted = st.form_submit_button("Ingresar", use_container_width=True)
-        if submitted:
-            if valid_login(email, password):
-                st.session_state["authenticated"] = True
-                st.session_state["user_email"] = email.strip().lower()
-                st.rerun()
-            else:
-                login_error = True
-        st.markdown(
-            '<div class="login-foot">Sistema exclusivo para personal autorizado</div>',
-            unsafe_allow_html=True,
-        )
-    if login_error:
-        st.markdown(
-            '<div class="login-message error">Correo o contrasena incorrectos.</div>',
-            unsafe_allow_html=True,
-        )
-    if not auth_config:
-        st.markdown(
-            '<div class="login-message warn">Configura usuarios en Secrets para habilitar el ingreso.</div>',
-            unsafe_allow_html=True,
-        )
+    elif enviado:
+        if valid_login(email, password):
+            st.session_state["authenticated"] = True
+            st.session_state["user_email"] = clean_auth_text(email).lower()
+            st.rerun()
+        else:
+            mensaje.markdown(
+                '<div class="login-message">Correo o contrasena incorrectos.</div>',
+                unsafe_allow_html=True,
+            )
+
     st.markdown(
-        '<div class="login-brands-foot">Gestion de catalogos para multiples marcas<br>Columbia &bull; Hush Puppies &bull; Vans &bull; Patagonia &bull; Mas</div>',
+        '<div class="login-foot">Acceso exclusivo para personal autorizado</div>',
         unsafe_allow_html=True,
     )
+
 
 
 def render_sidebar_logo() -> None:
-    logo_src = image_data_uri("forus_logo.png")
+    logo_src = imagen_data_uri("forus_logo.png")
     if logo_src:
         st.sidebar.markdown(
             f'<div class="sidebar-logo-card"><img src="{logo_src}" alt="FORUS"></div>',
@@ -1568,11 +531,33 @@ def render_sidebar_logo() -> None:
         )
 
 
+def render_sidebar_identidad() -> None:
+    """Tarjeta de usuario y cierre de sesion, arriba del menu."""
+    correo = str(st.session_state.get("user_email", "")).strip()
+    nombre = correo.split("@")[0].replace(".", " ").replace("_", " ").title() if correo else "Usuario"
+    partes = [parte for parte in nombre.split() if parte]
+    iniciales = "".join(parte[0] for parte in partes[:2]).upper() or "US"
+    st.sidebar.markdown(
+        '<div class="nav-card user-card">'
+        '<div class="user-avatar">' + iniciales + "</div>"
+        "<div>"
+        '<div class="user-rol">Administrador</div>'
+        '<div class="user-nombre">' + nombre + "</div>"
+        '<div class="user-mail">' + correo + "</div>"
+        "</div></div>",
+        unsafe_allow_html=True,
+    )
+    if st.sidebar.button("Cerrar sesion", **ancho()):
+        for clave in ("authenticated", "user_email"):
+            st.session_state.pop(clave, None)
+        st.rerun()
+
+
 def render_top_header(site_name: str) -> None:
     bigquery_badge = "BigQuery obligatorio" if bigquery_is_configured() else "Falta BigQuery"
     matrixify_badge = "IDs Matrixify"
     shopify_html = ""
-    shopify_src = image_data_uri("shopify_logo.png")
+    shopify_src = imagen_data_uri("shopify_logo.png")
     if shopify_src:
         shopify_html = f'<img class="shopify-mini" src="{shopify_src}" alt="Shopify">'
     st.markdown(
@@ -1779,469 +764,163 @@ if not st.session_state.get("authenticated"):
 
 
 render_sidebar_logo()
+render_sidebar_identidad()
 
 with st.sidebar:
-    user_email = st.session_state.get("user_email", "")
-    if user_email:
-        st.caption(f"Sesion: {user_email}")
+    st.markdown('<div class="sidebar-label">Modulo</div>', unsafe_allow_html=True)
     module = st.radio(
         "Modulo",
         ["Carga de descuentos", "Generar cupones"],
-        horizontal=False,
+        label_visibility="collapsed",
     )
-    st.markdown('<div class="sidebar-label">Sitio destino</div>', unsafe_allow_html=True)
-    site_name = st.selectbox("Sitio destino", list(SITES.keys()))
+
+    st.markdown('<div class="sidebar-label">Sitio activo</div>', unsafe_allow_html=True)
+    site_name = st.selectbox("Sitio activo", list(SITES.keys()), label_visibility="collapsed")
     site = SITES[site_name]
-    st.markdown('<div class="sidebar-label">Marca(s) permitidas</div>', unsafe_allow_html=True)
-    st.markdown(
-        f'<div class="sidebar-brand-card">{", ".join(site["brands"])}</div>',
-        unsafe_allow_html=True,
-    )
-    st.markdown('<div class="sidebar-label">Operacion</div>', unsafe_allow_html=True)
-    selected_brands = st.multiselect(
-        "Marcas a afectar",
-        site["brands"],
-        default=site["brands"][:1],
-        help="La marca se trae desde BigQuery usando el COD MOD COL del Revenue.",
-    )
-    st.markdown(
-        '<div class="connection-ok">BigQuery obligatorio para COD MOD COL</div>',
-        unsafe_allow_html=True,
-    )
-    st.caption(f"Salida: {site['output']}")
-    st.markdown(
-        f"""
-        <div class="sidebar-status-card">
-          <div style="font-weight:900;color:#031b4e;margin-bottom:12px;">Reglas de carga</div>
-          <div class="connection-ok">BigQuery define la marca a afectar</div>
-          <div style="color:#6b7894;font-size:13px;">Las marcas no seleccionadas se dejan sin cambios.</div>
-          <div style="color:#6b7894;font-size:13px;margin-top:12px;">Salida: {site['output']}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
 
+    chips = "".join('<span class="marca-chip">' + marca + "</span>" for marca in site["brands"])
+    st.markdown('<div class="sidebar-label">Marcas del sitio</div>', unsafe_allow_html=True)
+    st.markdown('<div class="nav-card"><div class="marca-chip-row">' + chips + "</div></div>", unsafe_allow_html=True)
 
-def render_coupon_builder(site_name: str, selected_site: dict) -> None:
-    shop_key = selected_site["shop_key"]
-    st.markdown(
-        """
-        <div class="coupon-page-head">
-          <div>
-            <h1>Smart Coupon Builder</h1>
-            <p>Crea cupones Shopify para multiples marcas desde una sola pantalla.</p>
-          </div>
-          <div class="coupon-head-actions">
-            <div class="coupon-ghost-action">Historial</div>
-            <div class="coupon-red-action">Nuevo cupon</div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    if "coupon_data" not in st.session_state:
-        st.session_state["coupon_data"] = default_coupon_data()
-    if "coupon_results" not in st.session_state:
-        st.session_state["coupon_results"] = []
-    if "coupon_site_version" not in st.session_state:
-        st.session_state["coupon_site_version"] = 0
-
-    mode = st.radio(
-        "Metodo de creacion",
-        ["Individual", "Masivo"],
-        horizontal=True,
-        key="coupon_creation_mode",
-    )
-    st.session_state["coupon_data"]["creationMode"] = mode
-
-    st.markdown(
-        """
-        <div class="coupon-builder-card">
-          <div class="coupon-step-line">
-            <div class="coupon-step-num">1</div>
-            <div class="coupon-step-title">Describe la promocion</div>
-          </div>
-          <div class="coupon-step-sub">Escribe una instruccion y deja que la app complete los campos.</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    prompt_col, interpret_col = st.columns([5.2, 1.05])
-    with prompt_col:
-        promotion_text = st.text_area(
-            "Describe la promocion",
-            value=st.session_state.get("promotion_text", ""),
-            placeholder=(
-                "Crear cupon CLUBTOYOTA20 con 20% de descuento para BCP, BBVA e Interbank "
-                "en Columbia, Hushpuppies y Rockford. Valido hoy desde 00:00 hasta 23:59, "
-                "una vez por cliente."
-            ),
-            height=118,
-            key="promotion_text",
-            label_visibility="collapsed",
+    if module == "Carga de descuentos":
+        st.markdown('<div class="sidebar-label">Operacion</div>', unsafe_allow_html=True)
+        selected_brands = st.multiselect(
+            "Marcas a afectar",
+            site["brands"],
+            default=site["brands"][:1],
+            help="La marca se trae desde BigQuery usando el COD MOD COL del Revenue.",
         )
-    with interpret_col:
-        st.write("")
-        st.write("")
-        interpret_clicked = st.button("Interpretar promocion", type="primary", use_container_width=True)
-
-    quick_label, *quick_cols = st.columns([1.1, 1, 1, 1, 1, 1, 1, 1])
-    quick_label.caption("Sugerencias rapidas:")
-    for column, (chip, template) in zip(quick_cols, QUICK_TEMPLATES.items()):
-        if column.button(chip, use_container_width=True):
-            st.session_state["promotion_text"] = template
-            st.rerun()
-
-    if interpret_clicked:
-        with st.spinner("Interpretando promocion..."):
-            st.session_state["coupon_data"] = parse_coupon_text(promotion_text)
-            st.session_state["coupon_data"]["creationMode"] = mode
-            st.session_state["coupon_results"] = []
-            st.session_state["coupon_site_version"] += 1
+        conectado = bigquery_is_configured()
         st.markdown(
-            '<div class="coupon-note">Promocion interpretada. Puedes editar cualquier campo antes de crear.</div>',
+            '<div class="estado-pill' + ("" if conectado else " warn") + '">'
+            '<span class="estado-punto"></span>'
+            + ("BigQuery conectado" if conectado else "Falta configurar BigQuery")
+            + "</div>",
             unsafe_allow_html=True,
         )
-
-    data = st.session_state["coupon_data"].copy()
-    data["creationMode"] = mode
-    if mode == "Masivo":
-        st.markdown(
-            """
-            <div class="coupon-builder-card tight">
-              <div class="coupon-step-line">
-                <div class="coupon-step-num">1B</div>
-                <div class="coupon-step-title">Codigos masivos</div>
-              </div>
-              <div class="coupon-step-sub">Pega un codigo por linea o carga un Excel/CSV. Todos usaran la misma configuracion.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        bulk_col, upload_col = st.columns([1.4, .8])
-        with bulk_col:
-            bulk_text = st.text_area(
-                "Codigos de cupon",
-                value="\n".join(data.get("couponCodes") or ([data.get("codigoCupon")] if data.get("codigoCupon") else [])),
-                height=130,
-                placeholder="TATI15\nJUAN15\nMARIA15\nSOFIA15",
-            )
-        with upload_col:
-            bulk_file = st.file_uploader("Cargar codigos Excel/CSV", type=["xlsx", "csv"], key="coupon_bulk_file")
-            uploaded_codes = read_coupon_codes_upload(bulk_file) if bulk_file else []
-        bulk_codes = uploaded_codes or parse_bulk_codes(bulk_text)
-        data["couponCodes"] = bulk_codes
-        if bulk_codes:
-            data["codigoCupon"] = bulk_codes[0]
-            data["nombreInterno"] = data.get("nombreInterno") or f"Campana {bulk_codes[0]}"
+        st.caption("Salida: " + site["output"])
     else:
-        data["couponCodes"] = [data.get("codigoCupon", "").strip().upper()] if data.get("codigoCupon") else []
+        selected_brands = list(site["brands"])
+        conectado = shopify_is_configured(site["shop_key"])
+        st.markdown(
+            '<div class="estado-pill' + ("" if conectado else " warn") + '">'
+            '<span class="estado-punto"></span>'
+            + ("Shopify conectado" if conectado else "Falta token de Shopify")
+            + "</div>",
+            unsafe_allow_html=True,
+        )
 
-    discount_label = (
-        f"{data['valorDescuento']:.0f}%"
-        if data["tipoDescuento"] == "Porcentaje"
-        else f"S/ {data['valorDescuento']:.2f}"
-    )
-    min_label = "S/ 0.00" if float(data["compraMinima"] or 0) == 0 else f"S/ {float(data['compraMinima']):,.2f}"
-    date_label = "Hoy" if data["fechaInicio"] == data["fechaFin"] else f"{data['fechaInicio']} - {data['fechaFin']}"
-    enabled_sites = [site_cfg for site_cfg in unique_sites() if site_cfg["enabled"]]
 
+
+def a_fecha(valor, defecto=None):
+    """Convierte 'YYYY-MM-DD' en date, tolerando basura."""
+    try:
+        return date.fromisoformat(str(valor).strip()[:10])
+    except Exception:
+        return defecto or date.today()
+
+
+def a_hora(valor, defecto_hora: int = 0, defecto_min: int = 0):
+    """Convierte 'HH:MM' en time, tolerando basura."""
+    try:
+        partes = str(valor).strip().split(":")
+        return time(int(partes[0]), int(partes[1]) if len(partes) > 1 else 0)
+    except Exception:
+        return time(defecto_hora, defecto_min)
+
+
+def bloque_vigencia(data: dict) -> None:
+    """Fecha y hora juntas: un bloque para el inicio y otro para el fin."""
+    inicio_col, fin_col = st.columns(2)
+
+    with inicio_col:
+        st.markdown('<div class="rango-tag">Inicio de la vigencia</div>', unsafe_allow_html=True)
+        dia_col, hora_col = st.columns([1.35, 1])
+        fecha_inicio = dia_col.date_input(
+            "Dia de inicio",
+            value=a_fecha(data.get("fechaInicio")),
+            format="DD/MM/YYYY",
+            key="vigencia_fecha_inicio",
+        )
+        hora_inicio = hora_col.time_input(
+            "Hora de inicio",
+            value=a_hora(data.get("horaInicio"), 0, 0),
+            step=300,
+            key="vigencia_hora_inicio",
+        )
+
+    with fin_col:
+        st.markdown('<div class="rango-tag">Fin de la vigencia</div>', unsafe_allow_html=True)
+        dia_col, hora_col = st.columns([1.35, 1])
+        fecha_fin = dia_col.date_input(
+            "Dia de fin",
+            value=a_fecha(data.get("fechaFin")),
+            format="DD/MM/YYYY",
+            min_value=fecha_inicio,
+            key="vigencia_fecha_fin",
+        )
+        hora_fin = hora_col.time_input(
+            "Hora de fin",
+            value=a_hora(data.get("horaFin"), 23, 59),
+            step=300,
+            key="vigencia_hora_fin",
+        )
+
+    data["fechaInicio"] = fecha_inicio.isoformat()
+    data["horaInicio"] = hora_inicio.strftime("%H:%M")
+    data["fechaFin"] = fecha_fin.isoformat()
+    data["horaFin"] = hora_fin.strftime("%H:%M")
+
+    dias = (fecha_fin - fecha_inicio).days + 1
+    duracion = "mismo dia" if dias <= 1 else str(dias) + " dias"
     st.markdown(
-        f"""
-        <div class="coupon-summary-grid">
-          <div class="coupon-summary-card">
-            <div class="coupon-summary-icon">#</div>
-            <div><div class="coupon-summary-label">Codigo cupon</div><div class="coupon-summary-value">{data['codigoCupon'] or '-'}</div><div class="coupon-summary-sub">{len(data.get('couponCodes') or [])} codigo(s)</div></div>
-          </div>
-          <div class="coupon-summary-card">
-            <div class="coupon-summary-icon red">%</div>
-            <div><div class="coupon-summary-label">Descuento</div><div class="coupon-summary-value">{discount_label}</div><div class="coupon-summary-sub">{data['tipoDescuento']}</div></div>
-          </div>
-          <div class="coupon-summary-card">
-            <div class="coupon-summary-icon green">S</div>
-            <div><div class="coupon-summary-label">Sitios seleccionados</div><div class="coupon-summary-value">{len(data['selectedSites'])}</div><div class="coupon-summary-sub">de {len(enabled_sites)} disponibles</div></div>
-          </div>
-          <div class="coupon-summary-card">
-            <div class="coupon-summary-icon orange">F</div>
-            <div><div class="coupon-summary-label">Vigencia</div><div class="coupon-summary-value">{date_label}</div><div class="coupon-summary-sub">{data['horaInicio']} - {data['horaFin']}</div></div>
-          </div>
-        </div>
-        """,
+        '<div class="rango-resumen">Del '
+        + fecha_inicio.strftime("%d/%m/%Y")
+        + " a las "
+        + data["horaInicio"]
+        + " hasta el "
+        + fecha_fin.strftime("%d/%m/%Y")
+        + " a las "
+        + data["horaFin"]
+        + "  &middot;  "
+        + duracion
+        + "</div>",
         unsafe_allow_html=True,
     )
 
-    form_col, sites_col = st.columns([1.35, .95])
-    with form_col:
-        st.markdown(
-            """
-            <div class="coupon-builder-card tight">
-              <div class="coupon-step-line">
-                <div class="coupon-step-num">2</div>
-                <div class="coupon-step-title">Condiciones del cupon</div>
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        left, right = st.columns(2)
-        with left:
-            data["nombreInterno"] = st.text_input("Nombre interno", value=data["nombreInterno"])
-            data["tipoDescuento"] = st.selectbox(
-                "Tipo descuento",
-                ["Porcentaje", "Monto fijo"],
-                index=["Porcentaje", "Monto fijo"].index(data.get("tipoDescuento", "Porcentaje")),
-            )
-            data["priceBasis"] = st.selectbox(
-                "Base de calculo",
-                [PRICE_BASIS_CURRENT, PRICE_BASIS_COMPARE_AT_BEST_WINS],
-                format_func=lambda value: "Price actual" if value == PRICE_BASIS_CURRENT else "Compare At Price - Best Wins",
-                index=[PRICE_BASIS_CURRENT, PRICE_BASIS_COMPARE_AT_BEST_WINS].index(
-                    data.get("priceBasis", PRICE_BASIS_CURRENT)
-                ),
-            )
-            if data["priceBasis"] == PRICE_BASIS_COMPARE_AT_BEST_WINS:
-                st.markdown(
-                    '<div class="coupon-note">El cupon se calcula desde el precio original. Si el producto ya tiene una promocion mejor, se conserva automaticamente el precio mas bajo.</div>',
-                    unsafe_allow_html=True,
-                )
-                data["missingCompareAtBehavior"] = st.selectbox(
-                    "Cuando no existe Compare At Price",
-                    ["use_current_price", "do_not_apply"],
-                    format_func=lambda value: "Usar Price actual como base" if value == "use_current_price" else "No aplicar cupon",
-                    index=["use_current_price", "do_not_apply"].index(
-                        data.get("missingCompareAtBehavior", "use_current_price")
-                    ),
-                )
-                data["functionMessage"] = st.text_input(
-                    "Mensaje del descuento",
-                    value=data.get("functionMessage", "Se aplico el mejor precio disponible"),
-                )
-            data["compraMinima"] = st.number_input(
-                "Compra minima (S/)",
-                min_value=0.0,
-                value=float(data["compraMinima"] or 0),
-                step=10.0,
-            )
-            data["descuentoMaximo"] = st.number_input(
-                "Descuento maximo (S/)",
-                min_value=0.0,
-                value=float(data.get("descuentoMaximo") or 0),
-                step=10.0,
-            )
-            data["fechaInicio"] = st.text_input("Fecha inicio", value=data["fechaInicio"], help="Formato YYYY-MM-DD")
-            data["fechaFin"] = st.text_input("Fecha fin", value=data["fechaFin"], help="Formato YYYY-MM-DD")
-            data["unaVezPorCliente"] = st.checkbox("Una vez por cliente", value=bool(data["unaVezPorCliente"]))
-        with right:
-            data["codigoCupon"] = st.text_input("Codigo cupon", value=data["codigoCupon"])
-            data["valorDescuento"] = st.number_input(
-                "Valor descuento",
-                min_value=0.0,
-                value=float(data["valorDescuento"]),
-                step=1.0,
-            )
-            data["limiteTotalUsos"] = st.number_input(
-                "Limite total de usos",
-                min_value=0,
-                value=int(data["limiteTotalUsos"] or 0),
-                step=1,
-            )
-            data["horaInicio"] = st.text_input("Hora inicio", value=data["horaInicio"], help="Formato HH:MM")
-            data["horaFin"] = st.text_input("Hora fin", value=data["horaFin"], help="Formato HH:MM")
-            data["appliesTo"] = st.selectbox(
-                "Aplicabilidad",
-                ["Todos los productos", "Productos seleccionados", "Colecciones seleccionadas"],
-                index=["Todos los productos", "Productos seleccionados", "Colecciones seleccionadas"].index(
-                    data.get("appliesTo", "Todos los productos")
-                ),
-            )
-        st.markdown("**Combinaciones permitidas en Shopify**")
-        comb_cols = st.columns(3)
-        with comb_cols[0]:
-            data["combinaProducto"] = st.toggle("Descuentos de producto", value=bool(data.get("combinaProducto")))
-        with comb_cols[1]:
-            data["combinaPedido"] = st.toggle("Descuentos de pedido", value=bool(data.get("combinaPedido")))
-        with comb_cols[2]:
-            data["combinaEnvio"] = st.toggle("Descuentos de envio", value=bool(data.get("combinaEnvio")))
 
-    with sites_col:
-        st.markdown(
-            f"""
-            <div class="coupon-builder-card tight">
-              <div class="coupon-step-line">
-                <div class="coupon-step-num">3</div>
-                <div class="coupon-step-title">Sitios Shopify</div>
-              </div>
-              <div class="coupon-site-pill">{len(data['selectedSites'])} seleccionados</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        all_site_ids = [site_cfg["id"] for site_cfg in enabled_sites]
-        chosen_sites = []
-        version = st.session_state["coupon_site_version"]
-        for site_cfg in enabled_sites:
-            checked = site_cfg["id"] in data["selectedSites"]
-            if st.checkbox(
-                f"{site_cfg['name']}    {site_cfg['id']}.pe",
-                value=checked,
-                key=f"coupon_site_{site_cfg['id']}_{version}",
-            ):
-                chosen_sites.append(site_cfg["id"])
-        data["selectedSites"] = chosen_sites
-        site_actions = st.columns(2)
-        if site_actions[0].button("Seleccionar todos", use_container_width=True):
-            data["selectedSites"] = all_site_ids
-            st.session_state["coupon_data"] = data
-            st.session_state["coupon_site_version"] += 1
-            st.rerun()
-        if site_actions[1].button("Limpiar", use_container_width=True):
-            data["selectedSites"] = []
-            st.session_state["coupon_data"] = data
-            st.session_state["coupon_site_version"] += 1
-            st.rerun()
+CLAVES_WIDGETS_CUPON = (
+    "stable_codigo",
+    "stable_nombre",
+    "stable_tipo",
+    "stable_valor",
+    "stable_price_basis",
+    "stable_minimo",
+    "stable_tope",
+    "stable_limite",
+    "stable_aplica",
+    "stable_once",
+    "stable_comb_prod",
+    "stable_comb_order",
+    "stable_comb_ship",
+    "stable_selected_sites",
+    "stable_function_message",
+    "vigencia_fecha_inicio",
+    "vigencia_fecha_fin",
+    "vigencia_hora_inicio",
+    "vigencia_hora_fin",
+)
 
-    if mode == "Individual":
-        data["couponCodes"] = [data.get("codigoCupon", "").strip().upper()] if data.get("codigoCupon") else []
-    selected_shop_keys = {
-        site_cfg["id"]: site_cfg["shop_key"]
-        for site_cfg in enabled_sites
-        if site_cfg["id"] in data["selectedSites"]
-    }
-    data["selectedShopKeys"] = list(selected_shop_keys.values())
-    data["functionHandlesByShop"] = {
-        shop_key: shopify_function_handle(shop_key)
-        for shop_key in data["selectedShopKeys"]
-    }
-    data["functionIdsByShop"] = {
-        shop_key: shopify_function_id(shop_key)
-        for shop_key in data["selectedShopKeys"]
-    }
-    st.session_state["coupon_data"] = data
-    min_label = "S/ 0.00" if float(data["compraMinima"] or 0) == 0 else f"S/ {float(data['compraMinima']):,.2f}"
-    codes_for_preview = data.get("couponCodes") or ([data.get("codigoCupon")] if data.get("codigoCupon") else [])
-    preview_rows = []
-    for site_cfg in enabled_sites:
-        if site_cfg["id"] in data["selectedSites"]:
-            for code in codes_for_preview:
-                preview_rows.append(
-                    {
-                        "Sitio": site_cfg["name"],
-                        "Codigo": code,
-                        "Descuento": f"{data['valorDescuento']:.0f}%" if data["tipoDescuento"] == "Porcentaje" else f"S/ {data['valorDescuento']:.2f}",
-                        "Compra minima": min_label,
-                        "Tope maximo": "Sin tope" if float(data.get("descuentoMaximo") or 0) == 0 else f"S/ {float(data['descuentoMaximo']):,.2f}",
-                        "Vigencia": f"{data['fechaInicio']} {data['horaInicio']} - {data['fechaFin']} {data['horaFin']}",
-                        "Uso por cliente": "Si" if data["unaVezPorCliente"] else "No",
-                        "Combina": f"P:{'Si' if data.get('combinaProducto') else 'No'} / O:{'Si' if data.get('combinaPedido') else 'No'} / E:{'Si' if data.get('combinaEnvio') else 'No'}",
-                        "Estado": "Listo",
-                    }
-                )
 
-    st.markdown(
-        f"""
-        <div class="coupon-builder-card tight">
-          <div class="coupon-step-line">
-            <div class="coupon-step-num">4</div>
-            <div class="coupon-step-title">Vista previa por sitio</div>
-          </div>
-          <div class="coupon-site-pill">{len(preview_rows)} sitios listos para crear</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    if preview_rows:
-        st.dataframe(pd.DataFrame(preview_rows), hide_index=True, use_container_width=True)
+def reiniciar_widgets_cupon() -> None:
+    """Borra las keys de los widgets del cupon.
 
-    if data.get("priceBasis") == PRICE_BASIS_COMPARE_AT_BEST_WINS:
-        st.markdown(
-            """
-            <div class="coupon-builder-card tight">
-              <div class="coupon-step-line">
-                <div class="coupon-step-num">BW</div>
-                <div class="coupon-step-title">Vista previa Best Wins por producto</div>
-              </div>
-              <div class="coupon-step-sub">Simula la logica de Compare At Price contra el Price actual. Nunca aumenta el precio ni descuenta si la promocion vigente ya gana.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.dataframe(pd.DataFrame(build_preview_rows(data)), hide_index=True, use_container_width=True)
-
-    for alert in data.get("parserAlerts", []):
-        css_class = "coupon-warning" if alert.get("blocking") else "coupon-note"
-        st.markdown(f'<div class="{css_class}">{alert.get("message")}</div>', unsafe_allow_html=True)
-
-    st.markdown(
-        f"""
-        <div class="coupon-preview-card">
-          <div class="coupon-preview-code">{data['codigoCupon'] or '-'}</div>
-          <div class="coupon-preview-discount">{discount_label} OFF</div>
-          <div class="coupon-preview-meta">Base de calculo: {'Compare At Price - Best Wins' if data.get('priceBasis') == PRICE_BASIS_COMPARE_AT_BEST_WINS else 'Price actual'}</div>
-          <div class="coupon-preview-meta">Vigencia: {data['fechaInicio']} {data['horaInicio']} hasta {data['fechaFin']} {data['horaFin']}</div>
-          <div class="coupon-preview-meta">Aplicabilidad: {data.get('appliesTo', 'Todos los productos')}</div>
-          <div class="coupon-preview-meta">Combinaciones: Producto {'Si' if data.get('combinaProducto') else 'No'} · Pedido {'Si' if data.get('combinaPedido') else 'No'} · Envio {'Si' if data.get('combinaEnvio') else 'No'}</div>
-          <div class="coupon-preview-meta">{len(codes_for_preview)} cupon(es) x {len(data['selectedSites'])} sitio(s) listos para revisar</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    errors = validate_coupon_data(
-        data,
-        function_ids_by_shop=data.get("functionIdsByShop", {}),
-        function_handles_by_shop=data.get("functionHandlesByShop", {}),
-    )
-    for error in errors:
-        st.markdown(f'<div class="coupon-warning">{error}</div>', unsafe_allow_html=True)
-
-    total_to_create = len(codes_for_preview) * len(data["selectedSites"])
-    button_label = f"Crear {total_to_create} cupon" if total_to_create == 1 else f"Crear {total_to_create} cupones"
-    create_disabled = bool(errors)
-    st.markdown(
-        f"""
-        <div class="coupon-bottom-bar">
-          <div>
-            <div class="coupon-bottom-title">Se crearan {total_to_create} cupones en Shopify</div>
-            <div class="coupon-bottom-sub">Revisa la vista previa antes de continuar.</div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    draft_col, create_col = st.columns([1, 1])
-    if draft_col.button("Guardar borrador", use_container_width=True):
-        st.info("Borrador conservado en esta sesion.")
-    if create_col.button(button_label, type="primary", use_container_width=True, disabled=create_disabled):
-        with st.status("Creando cupones en Shopify...", expanded=True) as status:
-            results = create_coupon_for_multiple_sites(
-                data,
-                segment_ids_by_site={},
-                shopify_create=create_shopify_coupon,
-                configured_checker=shopify_is_configured,
-            )
-            st.session_state["coupon_results"] = results
-            status.update(label="Proceso terminado.", state="complete")
-
-    if st.session_state["coupon_results"]:
-        st.markdown(
-            '<div class="coupon-builder-card tight"><div class="coupon-step-line"><div class="coupon-step-num">OK</div><div class="coupon-step-title">Resultados de creacion</div></div></div>',
-            unsafe_allow_html=True,
-        )
-        st.dataframe(pd.DataFrame(st.session_state["coupon_results"]), hide_index=True, use_container_width=True)
-
-    with st.expander("Secrets necesarios para Shopify"):
-        secret_example = (
-            "[shopify_sites." + shop_key + "]\n"
-            'shop_domain = "' + shop_key + '.myshopify.com"\n'
-            'client_id = ""\n'
-            'client_secret = ""\n'
-            'admin_access_token = "shpat_xxxxxxxxxxxxxxxxx"\n'
-            'api_version = "2026-04"\n'
-            'compare_at_best_wins_function_handle = "compare-at-best-wins"'
-        )
-        st.code(secret_example, language="toml")
-        st.caption("Para Compare At Price - Best Wins necesitas una Shopify Discount Function desplegada y permisos write_discounts.")
+    Streamlit ignora el parametro `value=` cuando la key ya existe en session_state.
+    Sin esto, "Interpretar promocion" parseaba bien pero los campos seguian mostrando
+    lo anterior. Al borrar las keys, cada widget vuelve a leer el valor del dato.
+    """
+    for clave in CLAVES_WIDGETS_CUPON:
+        st.session_state.pop(clave, None)
 
 
 def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
@@ -2251,15 +930,20 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
     if "coupon_results" not in st.session_state:
         st.session_state["coupon_results"] = []
 
-    head_left, head_right = st.columns([1, 0.34])
+    head_left, head_right = st.columns([3, 1])
     with head_left:
-        st.title("Smart Coupon Builder")
-        st.caption("Crea cupones Shopify para multiples marcas desde una sola pantalla.")
+        encabezado(
+            "Smart Coupon Builder",
+            "Crea cupones Shopify para varias tiendas desde una sola pantalla.",
+            chip="CUPONES",
+        )
     with head_right:
-        st.button("Historial", use_container_width=True, disabled=True)
-        if st.button("Nuevo cupon", type="primary", use_container_width=True):
+        st.write("")
+        if st.button("Nuevo cupon", type="primary", **ancho()):
             st.session_state["coupon_data"] = default_coupon_data()
             st.session_state["coupon_results"] = []
+            st.session_state["promotion_text"] = ""
+            reiniciar_widgets_cupon()
             st.rerun()
 
     mode = st.radio(
@@ -2270,66 +954,64 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
     )
     st.session_state["coupon_data"]["creationMode"] = mode
 
-    with st.container(border=True):
-        st.subheader("1. Describe la promocion")
-        st.caption("Escribe una instruccion y deja que la app complete los campos. Luego puedes editar todo.")
-        prompt_col, interpret_col = st.columns([5.2, 1.05])
-        with prompt_col:
-            promotion_text = st.text_area(
-                "Describe la promocion",
-                value=st.session_state.get("promotion_text", ""),
-                placeholder=(
-                    "Crear cupon CLUBTOYOTA20 con 20% de descuento para BCP, BBVA e Interbank "
-                    "en Columbia, Hushpuppies y Rockford. Valido hoy desde 00:00 hasta 23:59, "
-                    "una vez por cliente."
-                ),
-                height=118,
-                key="promotion_text",
-                label_visibility="collapsed",
-            )
-        with interpret_col:
-            st.write("")
-            st.write("")
-            interpret_clicked = st.button("Interpretar promocion", type="primary", use_container_width=True)
-
-        quick_label, *quick_cols = st.columns([1.1, 1, 1, 1, 1, 1, 1, 1])
-        quick_label.caption("Sugerencias rapidas:")
-        for column, (chip, template) in zip(quick_cols, QUICK_TEMPLATES.items()):
-            if column.button(chip, use_container_width=True, key=f"stable_template_{chip}"):
-                st.session_state["promotion_text"] = template
-                st.rerun()
+    seccion("1", "Describe la promocion", "Escribe la instruccion y la app completa los campos. Despues puedes editar todo.")
+    prompt_col, interpret_col = st.columns([4.4, 1.2])
+    with prompt_col:
+        promotion_text = st.text_area(
+            "Describe la promocion",
+            value=st.session_state.get("promotion_text", ""),
+            placeholder=(
+                "Crear cupon CLUBTOYOTA20 con 20% de descuento para BCP, BBVA e Interbank "
+                "en Columbia, Hushpuppies y Rockford. Valido hoy desde 00:00 hasta 23:59, "
+                "una vez por cliente."
+            ),
+            height=110,
+            key="promotion_text",
+            label_visibility="collapsed",
+        )
+    with interpret_col:
+        interpret_clicked = st.button("Interpretar", type="primary", **ancho())
+        with st.popover("Plantillas", **ancho()):
+            for chip, template in QUICK_TEMPLATES.items():
+                if st.button(chip, key="stable_template_" + chip, **ancho()):
+                    st.session_state["promotion_text"] = template
+                    st.rerun()
 
     if interpret_clicked:
         with st.spinner("Interpretando promocion..."):
-            st.session_state["coupon_data"] = parse_coupon_text(promotion_text)
-            st.session_state["coupon_data"]["creationMode"] = mode
+            interpretado = parse_coupon_text(promotion_text)
+            interpretado["creationMode"] = mode
+            st.session_state["coupon_data"] = interpretado
             st.session_state["coupon_results"] = []
-        st.success("Promocion interpretada. Puedes editar cualquier campo antes de crear.")
+            st.session_state["promocion_interpretada"] = True
+            reiniciar_widgets_cupon()
+        st.rerun()
+
+    if st.session_state.pop("promocion_interpretada", False):
+        st.success("Promocion interpretada. Revisa los campos antes de crear.")
 
     data = st.session_state["coupon_data"].copy()
     data["creationMode"] = mode
 
     if mode == "Masivo":
-        with st.container(border=True):
-            st.subheader("1B. Codigos masivos")
-            st.caption("Pega un codigo por linea o carga un Excel/CSV. Todos usaran la misma configuracion.")
-            bulk_col, upload_col = st.columns([1.4, .8])
-            with bulk_col:
-                bulk_text = st.text_area(
-                    "Codigos de cupon",
-                    value="\n".join(data.get("couponCodes") or ([data.get("codigoCupon")] if data.get("codigoCupon") else [])),
-                    height=130,
-                    placeholder="TATI15\nJUAN15\nMARIA15\nSOFIA15",
-                    key="stable_bulk_codes",
-                )
-            with upload_col:
-                bulk_file = st.file_uploader("Cargar codigos Excel/CSV", type=["xlsx", "csv"], key="coupon_bulk_file_stable")
-                uploaded_codes = read_coupon_codes_upload(bulk_file) if bulk_file else []
-            bulk_codes = uploaded_codes or parse_bulk_codes(bulk_text)
-            data["couponCodes"] = bulk_codes
-            if bulk_codes:
-                data["codigoCupon"] = bulk_codes[0]
-                data["nombreInterno"] = data.get("nombreInterno") or f"Campana {bulk_codes[0]}"
+        seccion("1B", "Codigos masivos", "Un codigo por linea o un Excel/CSV. Todos comparten la misma configuracion.")
+        bulk_col, upload_col = st.columns([1.5, 1])
+        with bulk_col:
+            bulk_text = st.text_area(
+                "Codigos de cupon",
+                value="\n".join(data.get("couponCodes") or ([data.get("codigoCupon")] if data.get("codigoCupon") else [])),
+                height=120,
+                placeholder="TATI15\nJUAN15\nMARIA15",
+                key="stable_bulk_codes",
+            )
+        with upload_col:
+            bulk_file = st.file_uploader("Cargar codigos Excel/CSV", type=["xlsx", "csv"], key="coupon_bulk_file_stable")
+            uploaded_codes = read_coupon_codes_upload(bulk_file) if bulk_file else []
+        bulk_codes = uploaded_codes or parse_bulk_codes(bulk_text)
+        data["couponCodes"] = bulk_codes
+        if bulk_codes:
+            data["codigoCupon"] = bulk_codes[0]
+            data["nombreInterno"] = data.get("nombreInterno") or "Campana " + bulk_codes[0]
     else:
         data["couponCodes"] = [data.get("codigoCupon", "").strip().upper()] if data.get("codigoCupon") else []
 
@@ -2339,134 +1021,150 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
         else f"S/ {data['valorDescuento']:.2f}"
     )
     min_label = "S/ 0.00" if float(data["compraMinima"] or 0) == 0 else f"S/ {float(data['compraMinima']):,.2f}"
-    date_label = "Hoy" if data["fechaInicio"] == data["fechaFin"] else f"{data['fechaInicio']} - {data['fechaFin']}"
     enabled_sites = [site_cfg for site_cfg in unique_sites() if site_cfg["enabled"]]
 
-    kpi_cols = st.columns(4)
-    kpi_cols[0].metric("Codigo cupon", data["codigoCupon"] or "-", f"{len(data.get('couponCodes') or [])} codigo(s)")
-    kpi_cols[1].metric("Descuento", discount_label, data["tipoDescuento"])
-    kpi_cols[2].metric("Sitios seleccionados", len(data["selectedSites"]), f"de {len(enabled_sites)} disponibles")
-    kpi_cols[3].metric("Vigencia", date_label, f"{data['horaInicio']} - {data['horaFin']}")
+    fila_kpis(
+        [
+            ("Codigo", data["codigoCupon"] or "-", str(len(data.get("couponCodes") or [])) + " codigo(s)"),
+            ("Descuento", discount_label, data["tipoDescuento"]),
+            ("Tiendas", str(len(data["selectedSites"])), "de " + str(len(enabled_sites)) + " disponibles"),
+            ("Vigencia", data["fechaInicio"], data["horaInicio"] + " a " + data["horaFin"]),
+        ]
+    )
 
-    form_col, sites_col = st.columns([1.35, .95])
-    with form_col:
-        with st.container(border=True):
-            st.subheader("2. Condiciones del cupon")
-            left, right = st.columns(2)
-            with left:
-                data["nombreInterno"] = st.text_input("Nombre interno", value=data["nombreInterno"], key="stable_nombre")
-                data["tipoDescuento"] = st.selectbox(
-                    "Tipo descuento",
-                    ["Porcentaje", "Monto fijo"],
-                    index=["Porcentaje", "Monto fijo"].index(data.get("tipoDescuento", "Porcentaje")),
-                    key="stable_tipo",
-                )
-                data["priceBasis"] = st.selectbox(
-                    "Base de calculo",
-                    [PRICE_BASIS_CURRENT, PRICE_BASIS_COMPARE_AT_BEST_WINS],
-                    format_func=lambda value: "Price actual" if value == PRICE_BASIS_CURRENT else "Compare At Price - Best Wins",
-                    index=[PRICE_BASIS_CURRENT, PRICE_BASIS_COMPARE_AT_BEST_WINS].index(
-                        data.get("priceBasis", PRICE_BASIS_CURRENT)
-                    ),
-                    key="stable_price_basis",
-                )
-                if data["priceBasis"] == PRICE_BASIS_COMPARE_AT_BEST_WINS:
-                    st.info("El cupon se calcula desde el precio original. Si el producto ya tiene una promocion mejor, se conserva automaticamente el precio mas bajo.")
-                    data["missingCompareAtBehavior"] = st.selectbox(
-                        "Cuando no existe Compare At Price",
-                        ["use_current_price", "do_not_apply"],
-                        format_func=lambda value: "Usar Price actual como base" if value == "use_current_price" else "No aplicar cupon",
-                        index=["use_current_price", "do_not_apply"].index(
-                            data.get("missingCompareAtBehavior", "use_current_price")
-                        ),
-                        key="stable_missing_compare",
-                    )
-                    data["functionMessage"] = st.text_input(
-                        "Mensaje del descuento",
-                        value=data.get("functionMessage", "Se aplico el mejor precio disponible"),
-                        key="stable_function_message",
-                    )
-                data["compraMinima"] = st.number_input(
-                    "Compra minima (S/)",
-                    min_value=0.0,
-                    value=float(data["compraMinima"] or 0),
-                    step=10.0,
-                    key="stable_minimo",
-                )
-                data["descuentoMaximo"] = st.number_input(
-                    "Descuento maximo (S/)",
-                    min_value=0.0,
-                    value=float(data.get("descuentoMaximo") or 0),
-                    step=10.0,
-                    key="stable_tope",
-                )
-                data["fechaInicio"] = st.text_input("Fecha inicio", value=data["fechaInicio"], help="Formato YYYY-MM-DD", key="stable_fecha_inicio")
-                data["fechaFin"] = st.text_input("Fecha fin", value=data["fechaFin"], help="Formato YYYY-MM-DD", key="stable_fecha_fin")
-                data["unaVezPorCliente"] = st.checkbox("Una vez por cliente", value=bool(data["unaVezPorCliente"]), key="stable_once")
-            with right:
-                data["codigoCupon"] = st.text_input("Codigo cupon", value=data["codigoCupon"], key="stable_codigo")
-                data["valorDescuento"] = st.number_input(
-                    "Valor descuento",
-                    min_value=0.0,
-                    value=float(data["valorDescuento"]),
-                    step=1.0,
-                    key="stable_valor",
-                )
-                data["limiteTotalUsos"] = st.number_input(
-                    "Limite total de usos",
-                    min_value=0,
-                    value=int(data["limiteTotalUsos"] or 0),
-                    step=1,
-                    key="stable_limite",
-                )
-                data["horaInicio"] = st.text_input("Hora inicio", value=data["horaInicio"], help="Formato HH:MM", key="stable_hora_inicio")
-                data["horaFin"] = st.text_input("Hora fin", value=data["horaFin"], help="Formato HH:MM", key="stable_hora_fin")
-                data["appliesTo"] = st.selectbox(
-                    "Aplicabilidad",
-                    ["Todos los productos", "Productos seleccionados", "Colecciones seleccionadas"],
-                    index=["Todos los productos", "Productos seleccionados", "Colecciones seleccionadas"].index(
-                        data.get("appliesTo", "Todos los productos")
-                    ),
-                    key="stable_aplica",
-                )
-            st.markdown("**Combinaciones permitidas en Shopify**")
-            comb_cols = st.columns(3)
-            with comb_cols[0]:
-                data["combinaProducto"] = st.toggle("Descuentos de producto", value=bool(data.get("combinaProducto")), key="stable_comb_prod")
-            with comb_cols[1]:
-                data["combinaPedido"] = st.toggle("Descuentos de pedido", value=bool(data.get("combinaPedido")), key="stable_comb_order")
-            with comb_cols[2]:
-                data["combinaEnvio"] = st.toggle("Descuentos de envio", value=bool(data.get("combinaEnvio")), key="stable_comb_ship")
+    seccion("2", "Configuracion del cupon", "Cada bloque agrupa un tipo de decision. Obligatorios: codigo, valor y tiendas.")
+    tab_descuento, tab_vigencia, tab_limites, tab_tiendas = st.tabs(
+        ["Descuento", "Vigencia", "Restricciones", "Tiendas"]
+    )
 
-    with sites_col:
-        with st.container(border=True):
-            st.subheader("3. Sitios Shopify")
-            all_site_ids = [site_cfg["id"] for site_cfg in enabled_sites]
-            site_options = {site_cfg["name"]: site_cfg["id"] for site_cfg in enabled_sites}
-            selected_site_names = [
-                site_cfg["name"]
-                for site_cfg in enabled_sites
-                if site_cfg["id"] in data.get("selectedSites", [])
-            ]
-            selected_site_names = st.multiselect(
-                "Tiendas donde se creara el cupon",
-                list(site_options),
-                default=selected_site_names,
-                key="stable_selected_sites",
+    with tab_descuento:
+        izq, der = st.columns(2)
+        with izq:
+            data["codigoCupon"] = st.text_input("Codigo del cupon", value=data["codigoCupon"], key="stable_codigo")
+            data["tipoDescuento"] = st.selectbox(
+                "Tipo de descuento",
+                ["Porcentaje", "Monto fijo"],
+                index=["Porcentaje", "Monto fijo"].index(data.get("tipoDescuento", "Porcentaje")),
+                key="stable_tipo",
             )
-            data["selectedSites"] = [site_options[name] for name in selected_site_names]
-            st.caption(f"{len(data['selectedSites'])} seleccionados")
-            site_actions = st.columns(2)
-            if site_actions[0].button("Seleccionar todos", use_container_width=True, key="stable_all_sites"):
-                data["selectedSites"] = all_site_ids
-                st.session_state["coupon_data"] = data
-                st.session_state["stable_selected_sites"] = list(site_options)
-                st.rerun()
-            if site_actions[1].button("Limpiar", use_container_width=True, key="stable_clear_sites"):
-                data["selectedSites"] = []
-                st.session_state["coupon_data"] = data
-                st.session_state["stable_selected_sites"] = []
-                st.rerun()
+        with der:
+            data["nombreInterno"] = st.text_input("Nombre interno", value=data["nombreInterno"], key="stable_nombre")
+            data["valorDescuento"] = st.number_input(
+                "Valor del descuento",
+                min_value=0.0,
+                value=float(data["valorDescuento"]),
+                step=1.0,
+                key="stable_valor",
+            )
+
+        data["priceBasis"] = st.selectbox(
+            "Base de calculo",
+            [PRICE_BASIS_CURRENT, PRICE_BASIS_COMPARE_AT_BEST_WINS],
+            format_func=lambda value: "Price actual" if value == PRICE_BASIS_CURRENT else "Compare At Price - Best Wins",
+            index=[PRICE_BASIS_CURRENT, PRICE_BASIS_COMPARE_AT_BEST_WINS].index(
+                data.get("priceBasis", PRICE_BASIS_CURRENT)
+            ),
+            key="stable_price_basis",
+        )
+        if data["priceBasis"] == PRICE_BASIS_COMPARE_AT_BEST_WINS:
+            aviso(
+                "El cupon se calcula desde el precio original. Si el producto ya tiene una promocion mejor, "
+                "se conserva el precio mas bajo. Sin Compare At Price se usa el Variant Price."
+            )
+            data["missingCompareAtBehavior"] = "use_current_price"
+            data["functionMessage"] = st.text_input(
+                "Mensaje del descuento",
+                value=data.get("functionMessage", "Se aplico el mejor precio disponible"),
+                key="stable_function_message",
+            )
+
+    with tab_vigencia:
+        bloque_vigencia(data)
+
+    with tab_limites:
+        izq, der = st.columns(2)
+        with izq:
+            data["compraMinima"] = st.number_input(
+                "Compra minima (S/)",
+                min_value=0.0,
+                value=float(data["compraMinima"] or 0),
+                step=10.0,
+                key="stable_minimo",
+            )
+            data["limiteTotalUsos"] = st.number_input(
+                "Limite total de usos",
+                min_value=0,
+                value=int(data["limiteTotalUsos"] or 0),
+                step=1,
+                help="0 = sin limite.",
+                key="stable_limite",
+            )
+        with der:
+            data["descuentoMaximo"] = st.number_input(
+                "Descuento maximo (S/)",
+                min_value=0.0,
+                value=float(data.get("descuentoMaximo") or 0),
+                step=10.0,
+                help="0 = sin tope.",
+                key="stable_tope",
+            )
+            data["appliesTo"] = st.selectbox(
+                "Aplicabilidad",
+                ["Todos los productos", "Productos seleccionados", "Colecciones seleccionadas"],
+                index=["Todos los productos", "Productos seleccionados", "Colecciones seleccionadas"].index(
+                    data.get("appliesTo", "Todos los productos")
+                ),
+                key="stable_aplica",
+            )
+        data["unaVezPorCliente"] = st.checkbox(
+            "Un solo uso por cliente", value=bool(data["unaVezPorCliente"]), key="stable_once"
+        )
+
+        st.markdown('<div class="rango-tag">Combinaciones permitidas en Shopify</div>', unsafe_allow_html=True)
+        comb_cols = st.columns(3)
+        with comb_cols[0]:
+            data["combinaProducto"] = st.toggle("Descuentos de producto", value=bool(data.get("combinaProducto")), key="stable_comb_prod")
+        with comb_cols[1]:
+            data["combinaPedido"] = st.toggle("Descuentos de pedido", value=bool(data.get("combinaPedido")), key="stable_comb_order")
+        with comb_cols[2]:
+            data["combinaEnvio"] = st.toggle("Descuentos de envio", value=bool(data.get("combinaEnvio")), key="stable_comb_ship")
+
+    with tab_tiendas:
+        all_site_ids = [site_cfg["id"] for site_cfg in enabled_sites]
+        site_options = {site_cfg["name"]: site_cfg["id"] for site_cfg in enabled_sites}
+        selected_site_names = [
+            site_cfg["name"] for site_cfg in enabled_sites if site_cfg["id"] in data.get("selectedSites", [])
+        ]
+        selected_site_names = st.multiselect(
+            "Tiendas donde se creara el cupon",
+            list(site_options),
+            default=selected_site_names,
+            key="stable_selected_sites",
+        )
+        data["selectedSites"] = [site_options[name] for name in selected_site_names]
+
+        acciones = st.columns([1, 1, 2])
+        if acciones[0].button("Todas", key="stable_all_sites", **ancho()):
+            data["selectedSites"] = all_site_ids
+            st.session_state["coupon_data"] = data
+            st.session_state.pop("stable_selected_sites", None)
+            st.rerun()
+        if acciones[1].button("Limpiar", key="stable_clear_sites", **ancho()):
+            data["selectedSites"] = []
+            st.session_state["coupon_data"] = data
+            st.session_state.pop("stable_selected_sites", None)
+            st.rerun()
+
+        chips_tiendas = "".join(
+            '<span class="pill ' + ("green" if shopify_is_configured(site_cfg["shop_key"]) else "orange") + '">'
+            + site_cfg["name"]
+            + ("" if shopify_is_configured(site_cfg["shop_key"]) else " sin token")
+            + "</span>"
+            for site_cfg in enabled_sites
+            if site_cfg["id"] in data["selectedSites"]
+        )
+        if chips_tiendas:
+            st.markdown('<div class="coupon-chip-row">' + chips_tiendas + "</div>", unsafe_allow_html=True)
 
     if mode == "Individual":
         data["couponCodes"] = [data.get("codigoCupon", "").strip().upper()] if data.get("codigoCupon") else []
@@ -2477,12 +1175,10 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
     }
     data["selectedShopKeys"] = list(selected_shop_keys.values())
     data["functionHandlesByShop"] = {
-        shop_key: shopify_function_handle(shop_key)
-        for shop_key in data["selectedShopKeys"]
+        clave_tienda: shopify_function_handle(clave_tienda) for clave_tienda in data["selectedShopKeys"]
     }
     data["functionIdsByShop"] = {
-        shop_key: shopify_function_id(shop_key)
-        for shop_key in data["selectedShopKeys"]
+        clave_tienda: shopify_function_id(clave_tienda) for clave_tienda in data["selectedShopKeys"]
     }
     st.session_state["coupon_data"] = data
 
@@ -2495,45 +1191,32 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
                     {
                         "Sitio": site_cfg["name"],
                         "Codigo": code,
-                        "Descuento": f"{data['valorDescuento']:.0f}%" if data["tipoDescuento"] == "Porcentaje" else f"S/ {data['valorDescuento']:.2f}",
+                        "Descuento": discount_label,
                         "Compra minima": min_label,
-                        "Tope maximo": "Sin tope" if float(data.get("descuentoMaximo") or 0) == 0 else f"S/ {float(data['descuentoMaximo']):,.2f}",
-                        "Vigencia": f"{data['fechaInicio']} {data['horaInicio']} - {data['fechaFin']} {data['horaFin']}",
-                        "Uso por cliente": "Si" if data["unaVezPorCliente"] else "No",
-                        "Combina": f"P:{'Si' if data.get('combinaProducto') else 'No'} / O:{'Si' if data.get('combinaPedido') else 'No'} / E:{'Si' if data.get('combinaEnvio') else 'No'}",
+                        "Tope": "Sin tope" if float(data.get("descuentoMaximo") or 0) == 0 else f"S/ {float(data['descuentoMaximo']):,.2f}",
+                        "Desde": data["fechaInicio"] + " " + data["horaInicio"],
+                        "Hasta": data["fechaFin"] + " " + data["horaFin"],
+                        "1 uso x cliente": "Si" if data["unaVezPorCliente"] else "No",
                         "Estado": "Listo",
                     }
                 )
 
-    with st.container(border=True):
-        st.subheader("4. Vista previa por sitio")
-        st.caption(f"{len(preview_rows)} cupon(es) listos para crear")
-        if preview_rows:
-            st.dataframe(pd.DataFrame(preview_rows), hide_index=True, use_container_width=True)
-        else:
-            st.info("Selecciona al menos un sitio y completa el codigo para ver la vista previa.")
+    seccion("3", "Vista previa", str(len(preview_rows)) + " cupon(es) listos para crear en Shopify.")
+    if preview_rows:
+        st.dataframe(pd.DataFrame(preview_rows), hide_index=True, **ancho())
+    else:
+        aviso("Selecciona al menos una tienda y completa el codigo para ver la vista previa.")
 
     if data.get("priceBasis") == PRICE_BASIS_COMPARE_AT_BEST_WINS:
-        with st.container(border=True):
-            st.subheader("Vista previa Best Wins por producto")
-            st.caption("Simula la logica de Compare At Price contra el Price actual. Nunca aumenta el precio ni descuenta si la promocion vigente ya gana.")
-            st.dataframe(pd.DataFrame(build_preview_rows(data)), hide_index=True, use_container_width=True)
+        with st.expander("Simulacion Best Wins por producto", expanded=False):
+            st.caption(
+                "Compara el Compare At Price contra el Price actual. Nunca sube un precio ni descuenta de mas "
+                "cuando la promocion vigente ya es mejor."
+            )
+            st.dataframe(pd.DataFrame(build_preview_rows(data)), hide_index=True, **ancho())
 
     for alert in data.get("parserAlerts", []):
-        if alert.get("blocking"):
-            st.warning(alert.get("message"))
-        else:
-            st.info(alert.get("message"))
-
-    with st.expander("Resumen tecnico del cupon", expanded=False):
-        st.write(f"Codigo: {data['codigoCupon'] or '-'}")
-        st.write(f"Descuento: {discount_label} OFF")
-        st.write(
-            "Base de calculo: "
-            + ("Compare At Price - Best Wins" if data.get("priceBasis") == PRICE_BASIS_COMPARE_AT_BEST_WINS else "Price actual")
-        )
-        st.write(f"Vigencia: {data['fechaInicio']} {data['horaInicio']} hasta {data['fechaFin']} {data['horaFin']}")
-        st.write(f"Aplicabilidad: {data.get('appliesTo', 'Todos los productos')}")
+        aviso(alert.get("message", ""), "error" if alert.get("blocking") else "info")
 
     errors = validate_coupon_data(
         data,
@@ -2541,16 +1224,35 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
         function_handles_by_shop=data.get("functionHandlesByShop", {}),
     )
     for error in errors:
-        st.error(error)
+        aviso(error, "error")
 
     total_to_create = len(codes_for_preview) * len(data["selectedSites"])
-    button_label = f"Crear {total_to_create} cupon" if total_to_create == 1 else f"Crear {total_to_create} cupones"
-    create_disabled = bool(errors)
-    st.info(f"Se crearan {total_to_create} cupones en Shopify. Revisa la vista previa antes de continuar.")
-    draft_col, create_col = st.columns([1, 1])
-    if draft_col.button("Guardar borrador", use_container_width=True, key="stable_draft"):
-        st.info("Borrador conservado en esta sesion.")
-    if create_col.button(button_label, type="primary", use_container_width=True, disabled=create_disabled, key="stable_create"):
+    button_label = "Crear 1 cupon" if total_to_create == 1 else "Crear " + str(total_to_create) + " cupones"
+
+    resumen_col, accion_col = st.columns([2, 1])
+    with resumen_col:
+        st.markdown(
+            '<div class="coupon-bottom-bar"><div>'
+            '<div class="coupon-bottom-title">'
+            + str(total_to_create)
+            + " cupon(es) en "
+            + str(len(data["selectedSites"]))
+            + " tienda(s)</div>"
+            '<div class="coupon-bottom-sub">Revisa la vista previa antes de continuar. La creacion no tiene deshacer.</div>'
+            "</div></div>",
+            unsafe_allow_html=True,
+        )
+    with accion_col:
+        st.write("")
+        crear = st.button(
+            button_label,
+            type="primary",
+            disabled=bool(errors) or total_to_create == 0,
+            key="stable_create",
+            **ancho(),
+        )
+
+    if crear:
         with st.status("Creando cupones en Shopify...", expanded=True) as status:
             results = create_coupon_for_multiple_sites(
                 data,
@@ -2562,328 +1264,118 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
             status.update(label="Proceso terminado.", state="complete")
 
     if st.session_state["coupon_results"]:
-        st.subheader("Resultados de creacion")
-        st.dataframe(pd.DataFrame(st.session_state["coupon_results"]), hide_index=True, use_container_width=True)
+        resultados = pd.DataFrame(st.session_state["coupon_results"])
+        exitosos = int((resultados["status"] == "success").sum()) if "status" in resultados else 0
+        fallidos = len(resultados) - exitosos
+        seccion("4", "Resultados", str(exitosos) + " creados, " + str(fallidos) + " con problema")
+        st.dataframe(resultados, hide_index=True, **ancho())
+        st.download_button(
+            "Descargar resultados",
+            data=excel_bytes_from_df(resultados, "Resultados"),
+            file_name="cupones_resultado.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
 
     with st.expander("Secrets necesarios para Shopify"):
         secret_example = (
             "[shopify_sites." + shop_key + "]\n"
             'shop_domain = "' + shop_key + '.myshopify.com"\n'
             'client_id = ""\n'
-            'client_secret = ""\n'
             'admin_access_token = "shpat_xxxxxxxxxxxxxxxxx"\n'
             'api_version = "2026-04"\n'
             'compare_at_best_wins_function_handle = "compare-at-best-wins"'
         )
         st.code(secret_example, language="toml")
-        st.caption("Para Compare At Price - Best Wins necesitas una Shopify Discount Function desplegada y permisos write_discounts.")
+        st.caption("Compare At Price - Best Wins necesita la Discount Function desplegada y permiso write_discounts.")
 
 
 if module == "Generar cupones":
     render_coupon_builder_stable(site_name, site)
     st.stop()
-    render_top_header(site_name)
-    shop_key = site["shop_key"]
-    st.markdown(
-        """
-        <div class="coupon-hero">
-          <div>
-            <h2>Smart Coupon Builder</h2>
-            <p>Interpreta el texto comercial, valida fechas y crea cupones Shopify por sitio sin repetir trabajo manual.</p>
-          </div>
-          <div class="coupon-hero-mini">
-            <div class="coupon-hero-chip">Texto inteligente<span>Codigo, % y vigencia</span></div>
-            <div class="coupon-hero-chip">Shopify API<span>Creacion por tienda</span></div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    if "coupon_data" not in st.session_state:
-        st.session_state["coupon_data"] = default_coupon_data()
-    if "coupon_results" not in st.session_state:
-        st.session_state["coupon_results"] = []
-
-    st.markdown(
-        """
-        <div class="coupon-card soft">
-          <div class="coupon-section-head">
-            <div>
-              <h3>1. Pega la promocion</h3>
-              <p>La app reconoce codigo, descuento, fechas, minimo de compra, uso por cliente y sitios mencionados.</p>
-            </div>
-            <div class="coupon-badge">Editable despues</div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    promotion_text = st.text_area(
-        "Describe la promocion",
-        value=st.session_state.get("promotion_text", ""),
-        placeholder="Crear cupon BBVA40 con 40% de descuento para todos los sitios, valido del 15 al 30 de junio, una vez por cliente y compra minima S/299.",
-        height=120,
-        key="promotion_text",
-    )
-    st.markdown('<div class="coupon-chip-row">', unsafe_allow_html=True)
-    chip_cols = st.columns(len(QUICK_TEMPLATES))
-    for column, (chip, template) in zip(chip_cols, QUICK_TEMPLATES.items()):
-        if column.button(chip, use_container_width=True):
-            st.session_state["promotion_text"] = template
-            st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
-    if st.button("Interpretar promocion", type="primary", use_container_width=True):
-        with st.spinner("Interpretando promocion..."):
-            st.session_state["coupon_data"] = parse_coupon_text(promotion_text)
-            st.session_state["coupon_results"] = []
-        st.markdown('<div class="coupon-note">Promocion interpretada. Puedes editar cualquier campo antes de crear.</div>', unsafe_allow_html=True)
-
-    data = st.session_state["coupon_data"].copy()
-    st.markdown(
-        """
-        <div class="coupon-card">
-          <div class="coupon-section-head">
-            <div>
-              <h3>2. Configura el cupon</h3>
-              <p>Todo queda editable antes de enviarlo a Shopify.</p>
-            </div>
-            <div class="coupon-badge">Validacion activa</div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    left, right = st.columns(2)
-    with left:
-        data["nombreInterno"] = st.text_input("Nombre interno", value=data["nombreInterno"])
-        data["codigoCupon"] = st.text_input("Codigo cupon", value=data["codigoCupon"])
-        data["tipoDescuento"] = st.selectbox(
-            "Tipo descuento",
-            ["Porcentaje", "Monto fijo"],
-            index=["Porcentaje", "Monto fijo"].index(data.get("tipoDescuento", "Porcentaje")),
-        )
-        data["valorDescuento"] = st.number_input("Valor descuento", min_value=0.0, value=float(data["valorDescuento"]), step=1.0)
-        data["compraMinima"] = st.number_input("Compra minima", min_value=0.0, value=float(data["compraMinima"] or 0), step=10.0)
-    with right:
-        data["fechaInicio"] = st.text_input("Fecha inicio", value=data["fechaInicio"], help="Formato YYYY-MM-DD")
-        data["horaInicio"] = st.text_input("Hora inicio", value=data["horaInicio"], help="Formato HH:MM")
-        data["fechaFin"] = st.text_input("Fecha fin", value=data["fechaFin"], help="Formato YYYY-MM-DD")
-        data["horaFin"] = st.text_input("Hora fin", value=data["horaFin"], help="Formato HH:MM")
-        data["limiteTotalUsos"] = st.number_input("Limite total de usos (0 = sin limite)", min_value=0, value=int(data["limiteTotalUsos"] or 0), step=1)
-        data["unaVezPorCliente"] = st.checkbox("Una vez por cliente", value=bool(data["unaVezPorCliente"]))
-
-    st.markdown(
-        """
-        <div class="coupon-card">
-          <div class="coupon-section-head">
-            <div>
-              <h3>3. Selecciona sitios Shopify</h3>
-              <p>La seleccion define en que tiendas se creara el mismo codigo.</p>
-            </div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    all_site_ids = [site["id"] for site in COUPON_SHOPIFY_SITES if site["enabled"]]
-    site_options = {site["name"]: site["id"] for site in COUPON_SHOPIFY_SITES if site["enabled"]}
-    selected_names = [name for name, site_id in site_options.items() if site_id in data["selectedSites"]]
-    selected_names = st.multiselect("Sitios Shopify", list(site_options), default=selected_names)
-    data["selectedSites"] = [site_options[name] for name in selected_names]
-    site_actions = st.columns([1, 1, 3])
-    if site_actions[0].button("Seleccionar todos"):
-        data["selectedSites"] = all_site_ids
-        st.session_state["coupon_data"] = data
-        st.rerun()
-    if site_actions[1].button("Limpiar"):
-        data["selectedSites"] = []
-        st.session_state["coupon_data"] = data
-        st.rerun()
-    st.markdown(f'<div class="coupon-site-count">{len(data["selectedSites"])} sitios seleccionados</div>', unsafe_allow_html=True)
-
-    st.session_state["coupon_data"] = data
-    preview_rows = []
-    for site in COUPON_SHOPIFY_SITES:
-        if site["id"] in data["selectedSites"]:
-            preview_rows.append(
-                {
-                    "Sitio": site["name"],
-                    "Codigo": data["codigoCupon"],
-                    "Descuento": f"{data['valorDescuento']:.0f}%" if data["tipoDescuento"] == "Porcentaje" else f"S/ {data['valorDescuento']:.2f}",
-                    "Vigencia": f"{data['fechaInicio']} {data['horaInicio']} - {data['fechaFin']} {data['horaFin']}",
-                    "Estado": "Listo",
-                }
-            )
-
-    discount_label = f"{data['valorDescuento']:.0f}%" if data["tipoDescuento"] == "Porcentaje" else f"S/ {data['valorDescuento']:.2f}"
-    min_label = "Sin minimo" if float(data["compraMinima"] or 0) == 0 else f"S/ {float(data['compraMinima']):,.2f}"
-    usage_label = "1 por cliente" if data["unaVezPorCliente"] else "Sin restriccion"
-    st.markdown(
-        f"""
-        <div class="coupon-card soft">
-          <div class="coupon-section-head">
-            <div>
-              <h3>4. Vista previa</h3>
-              <p>Resumen final antes de crear el cupon en Shopify.</p>
-            </div>
-            <div class="coupon-badge">{len(data['selectedSites'])} tiendas</div>
-          </div>
-          <div class="coupon-kpi-grid">
-            <div class="coupon-kpi"><b>{data['codigoCupon'] or '-'}</b><span>Codigo</span></div>
-            <div class="coupon-kpi"><b>{discount_label}</b><span>Descuento</span></div>
-            <div class="coupon-kpi"><b>{min_label}</b><span>Compra minima</span></div>
-            <div class="coupon-kpi"><b>{usage_label}</b><span>Uso</span></div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    if preview_rows:
-        st.markdown('<div class="preview-panel"><div class="preview-title">Detalle por sitio</div><div class="preview-sub">Estos son los cupones que se enviaran a Shopify.</div>', unsafe_allow_html=True)
-        st.dataframe(pd.DataFrame(preview_rows), hide_index=True, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    errors = validate_coupon_data(data)
-    for error in errors:
-        st.markdown(f'<div class="coupon-warning">{error}</div>', unsafe_allow_html=True)
-
-    button_label = f"Crear {len(data['selectedSites'])} cupon" if len(data["selectedSites"]) == 1 else f"Crear {len(data['selectedSites'])} cupones"
-    create_disabled = bool(errors)
-    if st.button(button_label, type="primary", use_container_width=True, disabled=create_disabled):
-        with st.status("Creando cupones en Shopify...", expanded=True) as status:
-            results = create_coupon_for_multiple_sites(
-                data,
-                segment_ids_by_site={},
-                shopify_create=create_shopify_coupon,
-                configured_checker=shopify_is_configured,
-            )
-            st.session_state["coupon_results"] = results
-            status.update(label="Proceso terminado.", state="complete")
-
-    if st.session_state["coupon_results"]:
-        st.markdown('<div class="coupon-card"><div class="coupon-section-head"><div><h3>Resultados de creacion</h3><p>Estado devuelto por cada tienda Shopify.</p></div></div>', unsafe_allow_html=True)
-        st.dataframe(pd.DataFrame(st.session_state["coupon_results"]), hide_index=True, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with st.expander("Secrets necesarios para Shopify"):
-        secret_example = (
-            "[shopify_sites." + shop_key + "]\n"
-            'shop_domain = "' + shop_key + '.myshopify.com"\n'
-            'client_id = ""\n'
-            'client_secret = ""\n'
-            'admin_access_token = "shpat_xxxxxxxxxxxxxxxxx"\n'
-            'api_version = "2026-04"'
-        )
-        st.code(
-            secret_example,
-            language="toml",
-        )
-        st.caption("El token debe tener permisos write_discounts y permisos de lectura para segmentos/clientes si usaras grupos.")
-    st.stop()
-
-
 render_top_header(site_name)
 steps_placeholder = st.empty()
 
-st.markdown(
-    """
-    <div class="main-card">
-      <h2>Preparar carga de descuentos</h2>
-      <div class="muted">Sube el Revenue comercial y el ultimo Matrixify del sitio. La app arma una hoja por campana.</div>
-      <div class="source-grid">
-        <div class="source-box active">
-          <div class="source-title">Revenue comercial</div>
-          <div class="source-sub">Trae COD MOD COL y descuentos por campana</div>
-        </div>
-        <div class="source-box green">
-          <div class="source-title">BigQuery maestro</div>
-          <div class="source-sub">Convierte COD MOD COL en SKUs y marca</div>
-        </div>
-        <div class="source-box warn">
-          <div class="source-title">Control de precios</div>
-          <div class="source-sub">Sin descuento: precio original y Compare At vacio</div>
-        </div>
-      </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
+seccion(
+    "1",
+    "Archivos de entrada",
+    "Revenue comercial con COD MOD COL y el ultimo Matrixify del sitio. Se genera una hoja por campana.",
 )
 
 upload_left, upload_right = st.columns(2)
 with upload_left:
-    revenue_file = st.file_uploader("1. Subir Revenue / input comercial", type=["xlsx", "xlsm"], key="revenue")
+    revenue_file = st.file_uploader("Revenue / input comercial", type=["xlsx", "xlsm"], key="revenue")
 with upload_right:
     matrixify_file = st.file_uploader(
-        f"2. Subir ultimo catalogo Matrixify de {site_name}",
+        "Ultimo Matrixify de " + site_name,
         type=["xlsx", "xlsm"],
         key="matrixify",
-        help="Debe corresponder al mismo sitio destino para conservar Product ID y Variant ID.",
+        help="Debe ser del mismo sitio destino para conservar Product ID y Variant ID.",
     )
 
 render_steps(revenue_file is not None, matrixify_file is not None, target=steps_placeholder)
 
-with st.expander("Aviso al brand manager", expanded=False):
-    notify_email = st.text_input(
-        "Enviar faltantes de Matrixify a",
-        value="",
-        placeholder="correo@empresa.com",
-        help="Opcional. Solo se enviara si hay codigos del input que faltan crear en Matrixify.",
-    )
-
-with st.expander("Formato comercial esperado"):
-    st.download_button(
-        "Descargar formato input Revenue",
-        data=build_input_template_bytes(),
-        file_name="formato_input_revenue.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
-    )
-    st.dataframe(
-        pd.DataFrame(
-            [
-                ["Inicio", "2026-06-06 20:00", "2026-06-15 10:00", "2026-06-01 10:00"],
-                ["Fin", "2026-06-07 23:59", "2026-06-30 23:59", "2026-06-30 23:59"],
-                ["Cod Mod Col", "CLB 40", "SALE", "RESTO DEL MES"],
-                ["MODELO-COLOR", "40%", "30%", "0%"],
-            ]
-        ).rename(columns={0: "", 1: "Campana 1", 2: "Campana 2", 3: "Campana 3"}),
-        hide_index=True,
-        use_container_width=True,
-    )
-
+estado_fuentes = [
+    ("Revenue", "Cargado" if revenue_file else "Pendiente", bool(revenue_file)),
+    ("Matrixify", "Cargado" if matrixify_file else "Pendiente", bool(matrixify_file)),
+    ("BigQuery", "Conectado" if bigquery_is_configured() else "Sin configurar", bigquery_is_configured()),
+    ("Salida", site["output"], True),
+]
+chips_fuentes = "".join(
+    '<span class="pill ' + ("green" if ok else "muted") + '">' + titulo + ": " + valor + "</span>"
+    for titulo, valor, ok in estado_fuentes
+)
 st.markdown(
-    f"""
-    <div class="status-card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
-        <div style="font-size:20px;font-weight:900;color:#031b4e;">Estado de preparacion</div>
-        <span class="pill">Fuentes listas</span>
-      </div>
-      <div class="source-grid">
-        <div class="source-box">
-          <div class="source-title">Revenue</div>
-          <div class="source-sub">Input de descuentos comercial</div>
-        </div>
-        <div class="source-box">
-          <div class="source-title">Cruce BigQuery</div>
-          <div class="source-sub">Obligatorio para convertir MODCOL en SKUs</div>
-        </div>
-        <div class="source-box">
-          <div class="source-title">Archivo final</div>
-          <div class="source-sub">{site["output"]}</div>
-        </div>
-      </div>
-    </div>
-    """,
+    '<div class="coupon-builder-card tight">'
+    '<div class="coupon-step-title">Estado de preparacion</div>'
+    '<div class="coupon-chip-row">' + chips_fuentes + "</div>"
+    "</div>",
     unsafe_allow_html=True,
 )
 
-generate = st.button(
-    "Generar Matrixify Revenue",
-    type="primary",
-    use_container_width=True,
-    disabled=not revenue_file or not matrixify_file,
-)
+ayuda_izq, ayuda_der = st.columns(2)
+with ayuda_izq:
+    with st.expander("Aviso al brand manager"):
+        notify_email = st.text_input(
+            "Enviar faltantes de Matrixify a",
+            value="",
+            placeholder="correo@empresa.com",
+            help="Opcional. Solo se envia si hay codigos del input que faltan crear en Matrixify.",
+        )
+with ayuda_der:
+    with st.expander("Formato comercial esperado"):
+        st.download_button(
+            "Descargar formato",
+            data=build_input_template_bytes(),
+            file_name="formato_input_revenue.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            **ancho(),
+        )
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    ["Inicio", "2026-06-06 20:00", "2026-06-15 10:00", "2026-06-01 10:00"],
+                    ["Fin", "2026-06-07 23:59", "2026-06-30 23:59", "2026-06-30 23:59"],
+                    ["Cod Mod Col", "CLB 40", "SALE", "RESTO DEL MES"],
+                    ["MODELO-COLOR", "40%", "30%", "0%"],
+                ]
+            ).rename(columns={0: "", 1: "Campana 1", 2: "Campana 2", 3: "Campana 3"}),
+            hide_index=True,
+            **ancho(),
+        )
+
+listo_para_generar = bool(revenue_file) and bool(matrixify_file)
+accion_izq, accion_der = st.columns([2, 1])
+with accion_izq:
+    if not listo_para_generar:
+        st.caption("Carga los dos archivos para habilitar la generacion.")
+with accion_der:
+    generate = st.button(
+        "Generar Matrixify Revenue",
+        type="primary",
+        disabled=not listo_para_generar,
+        **ancho(),
+    )
+
 
 if generate:
     if not selected_brands:
@@ -3044,7 +1536,6 @@ if generate:
             data=output_bytes,
             file_name=site["output"],
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
             key="download_matrixify_top",
         )
 
@@ -3052,55 +1543,29 @@ if generate:
             brand_df = pd.DataFrame(
                 [{"Marca BigQuery": brand, "COD MOD COL": count} for brand, count in sorted(brand_counts.items())]
             )
-            st.markdown(
-                '<div class="preview-panel"><div class="preview-title">Marcas detectadas por BigQuery</div>'
-                '<div class="preview-sub">Sirve para validar si el input corresponde a la marca que elegiste afectar.</div>',
-                unsafe_allow_html=True,
-            )
-            st.dataframe(brand_df, hide_index=True, use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+            panel("Marcas detectadas por BigQuery", "Sirve para validar si el input corresponde a la marca que elegiste afectar.")
+            st.dataframe(brand_df, hide_index=True, **ancho())
 
-        st.markdown(
-            '<div class="preview-panel"><div class="preview-title">Resumen de hojas a programar</div>'
-            '<div class="preview-sub">Cada fila representa una hoja/campana que saldra en el Excel final.</div>',
-            unsafe_allow_html=True,
-        )
-        st.dataframe(result["summary"], hide_index=True, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+        panel("Resumen de hojas a programar", "Cada fila representa una hoja/campana que saldra en el Excel final.")
+        st.dataframe(result["summary"], hide_index=True, **ancho())
 
         if not result["percent"].empty:
-            st.markdown(
-                '<div class="preview-panel"><div class="preview-title">Distribucion por descuento</div>'
-                '<div class="preview-sub">Cantidad de modelo-color y variantes afectadas por porcentaje.</div>',
-                unsafe_allow_html=True,
-            )
-            st.dataframe(result["percent"], hide_index=True, use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+            panel("Distribucion por descuento", "Cantidad de modelo-color y variantes afectadas por porcentaje.")
+            st.dataframe(result["percent"], hide_index=True, **ancho())
 
         if not result["missing"].empty:
-            st.markdown(
-                '<div class="preview-panel"><div class="preview-title">Codigos que faltan crear en Matrixify</div>'
-                '<div class="preview-sub">Estos COD MOD COL vienen en el input, pero no aparecen en el ultimo Matrixify cargado.</div>',
-                unsafe_allow_html=True,
-            )
-            st.dataframe(result["missing"].head(200), hide_index=True, use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+            panel("Codigos que faltan crear en Matrixify", "Estos COD MOD COL vienen en el input, pero no aparecen en el ultimo Matrixify cargado.")
+            st.dataframe(result["missing"].head(200), hide_index=True, **ancho())
 
         if not result["not_affected"].empty:
-            st.markdown(
-                '<div class="preview-panel"><div class="preview-title">Codigos fuera de la marca seleccionada</div>'
-                '<div class="preview-sub">BigQuery detecto otra marca; la app no modifica estos productos.</div>',
-                unsafe_allow_html=True,
-            )
-            st.dataframe(result["not_affected"].head(200), hide_index=True, use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+            panel("Codigos fuera de la marca seleccionada", "BigQuery detecto otra marca; la app no modifica estos productos.")
+            st.dataframe(result["not_affected"].head(200), hide_index=True, **ancho())
 
         st.download_button(
             "Descargar Matrixify generado",
             data=output_bytes,
             file_name=site["output"],
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
             key="download_matrixify_bottom",
         )
     except Exception as exc:

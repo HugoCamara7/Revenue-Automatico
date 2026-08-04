@@ -10,9 +10,13 @@ from compare_at_best_wins import (
 )
 from coupon_config import COUPON_SHOPIFY_SITES
 
+# En la API 2026-04 `context` usa el enum DiscountBuyerSelection, cuyo unico
+# valor es ALL. Mandar True hace que Shopify rechace la mutation.
+CONTEXTO_TODOS = {"all": "ALL"}
+
 
 def build_shopify_discount_payload(data: dict, customer_segment_id: str = "") -> dict:
-    customer_context = {"all": True}
+    customer_context = dict(CONTEXTO_TODOS)
     if customer_segment_id:
         customer_context = {"customerSegments": {"add": [customer_segment_id]}}
 
@@ -50,7 +54,7 @@ def build_shopify_app_discount_payload(
 ) -> dict:
     if not function_handle and not function_id:
         raise ValueError("Falta function_handle de Shopify Discount Function.")
-    customer_context = {"all": "ALL"}
+    customer_context = dict(CONTEXTO_TODOS)
     if customer_segment_id:
         customer_context = {"customerSegments": {"add": [customer_segment_id]}}
 
@@ -109,6 +113,7 @@ def create_coupon_for_multiple_sites(
             try:
                 code_data = {**data, "codigoCupon": code, "nombreInterno": data.get("nombreInterno") or code}
                 if code_data.get("priceBasis") == PRICE_BASIS_COMPARE_AT_BEST_WINS:
+                    code_data["missingCompareAtBehavior"] = "use_current_price"
                     function_handle = code_data.get("functionHandlesByShop", {}).get(site["shop_key"], "")
                     function_id = code_data.get("functionIdsByShop", {}).get(site["shop_key"], "")
                     payload = build_shopify_app_discount_payload(
