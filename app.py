@@ -23,6 +23,7 @@ from generar_matrixify_descuentos import (
     normalize_key,
     read_matrixify,
 )
+from auditoria import registrar_creacion
 from shopify_coupon_service import create_coupon_for_multiple_sites
 from ui_kit import (
     ancho,
@@ -805,6 +806,11 @@ with st.sidebar:
             st.switch_page("pages/1_Centro_de_control.py")
         except Exception:
             st.warning("Falta la carpeta pages/ con el Centro de Control.")
+    if st.button("Auditoria", icon=":material/fact_check:", key="nav_auditoria", **ancho()):
+        try:
+            st.switch_page("pages/2_Auditoria_de_cupones.py")
+        except Exception:
+            st.warning("Falta la pagina de auditoria en pages/.")
 
 module = next(
     nombre for clave_modulo, _etiqueta, _icono, nombre in MODULOS
@@ -951,6 +957,19 @@ CLAVES_WIDGETS_CUPON = (
 )
 
 
+def aplicar_plantilla(texto_plantilla: str) -> None:
+    """Cambia el texto de la promocion sin tocar la key del widget.
+
+    Streamlit prohibe escribir en session_state la key de un widget ya instanciado,
+    por eso el texto vive en `promo_texto` y el widget usa una key versionada: al
+    subir la version, el text_area se recrea con el valor nuevo.
+    """
+    st.session_state["promo_texto"] = texto_plantilla
+    st.session_state["promo_version"] = int(st.session_state.get("promo_version", 0)) + 1
+    reiniciar_widgets_cupon()
+    st.rerun()
+
+
 def reiniciar_widgets_cupon() -> None:
     """Borra las keys de los widgets del cupon.
 
@@ -968,6 +987,10 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
         st.session_state["coupon_data"] = default_coupon_data()
     if "coupon_results" not in st.session_state:
         st.session_state["coupon_results"] = []
+    if "promo_texto" not in st.session_state:
+        st.session_state["promo_texto"] = ""
+    if "promo_version" not in st.session_state:
+        st.session_state["promo_version"] = 0
 
     head_left, head_right = st.columns([3, 1])
     with head_left:
@@ -981,9 +1004,7 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
         if st.button("Nuevo cupon", type="primary", **ancho()):
             st.session_state["coupon_data"] = default_coupon_data()
             st.session_state["coupon_results"] = []
-            st.session_state["promotion_text"] = ""
-            reiniciar_widgets_cupon()
-            st.rerun()
+            aplicar_plantilla("")
 
     mode = st.radio(
         "Metodo de creacion",
@@ -998,23 +1019,23 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
     with prompt_col:
         promotion_text = st.text_area(
             "Describe la promocion",
-            value=st.session_state.get("promotion_text", ""),
+            value=st.session_state["promo_texto"],
             placeholder=(
                 "Crear cupon CLUBTOYOTA20 con 20% de descuento para BCP, BBVA e Interbank "
                 "en Columbia, Hushpuppies y Rockford. Valido hoy desde 00:00 hasta 23:59, "
                 "una vez por cliente."
             ),
             height=110,
-            key="promotion_text",
+            key="promo_area_" + str(st.session_state["promo_version"]),
             label_visibility="collapsed",
         )
+        st.session_state["promo_texto"] = promotion_text
     with interpret_col:
         interpret_clicked = st.button("Interpretar", type="primary", **ancho())
         with st.popover("Plantillas", **ancho()):
             for chip, template in QUICK_TEMPLATES.items():
                 if st.button(chip, key="stable_template_" + chip, **ancho()):
-                    st.session_state["promotion_text"] = template
-                    st.rerun()
+                    aplicar_plantilla(template)
 
     if interpret_clicked:
         with st.spinner("Interpretando promocion..."):
@@ -1071,31 +1092,28 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
         ]
     )
 
-    seccion("2", "Configuracion del cupon", "Cada bloque agrupa un tipo de decision. Obligatorios: codigo, valor y tiendas.")
-    tab_descuento, tab_vigencia, tab_limites, tab_tiendas = st.tabs(
-        ["Descuento", "Vigencia", "Restricciones", "Tiendas"]
-    )
+    seccion("2", "Descuento", "Que codigo se entrega y cuanto descuenta.")
+    izq, der = st.columns(2)
+    with izq:
+        data["codigoCupon"] = st.text_input("Codigo del cupon", value=data["codigoCupon"], key="stable_codigo")
+        data["tipoDescuento"] = st.selectbox(
+            "Tipo de descuento",
+            ["Porcentaje", "Monto fijo"],
+            index=["Porcentaje", "Monto fijo"].index(data.get("tipoDescuento", "Porcentaje")),
+            key="stable_tipo",
+        )
+    with der:
+        data["nombreInterno"] = st.text_input("Nombre interno", value=data["nombreInterno"], key="stable_nombre")
+        data["valorDescuento"] = st.number_input(
+            "Valor del descuento",
+            min_value=0.0,
+            value=float(data["valorDescuento"]),
+            step=1.0,
+            key="stable_valor",
+        )
 
-    with tab_descuento:
-        izq, der = st.columns(2)
-        with izq:
-            data["codigoCupon"] = st.text_input("Codigo del cupon", value=data["codigoCupon"], key="stable_codigo")
-            data["tipoDescuento"] = st.selectbox(
-                "Tipo de descuento",
-                ["Porcentaje", "Monto fijo"],
-                index=["Porcentaje", "Monto fijo"].index(data.get("tipoDescuento", "Porcentaje")),
-                key="stable_tipo",
-            )
-        with der:
-            data["nombreInterno"] = st.text_input("Nombre interno", value=data["nombreInterno"], key="stable_nombre")
-            data["valorDescuento"] = st.number_input(
-                "Valor del descuento",
-                min_value=0.0,
-                value=float(data["valorDescuento"]),
-                step=1.0,
-                key="stable_valor",
-            )
-
+    base_col, mensaje_col = st.columns(2)
+    with base_col:
         data["priceBasis"] = st.selectbox(
             "Base de calculo",
             [PRICE_BASIS_CURRENT, PRICE_BASIS_COMPARE_AT_BEST_WINS],
@@ -1105,106 +1123,117 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
             ),
             key="stable_price_basis",
         )
-        if data["priceBasis"] == PRICE_BASIS_COMPARE_AT_BEST_WINS:
-            aviso(
-                "El cupon se calcula desde el precio original. Si el producto ya tiene una promocion mejor, "
-                "se conserva el precio mas bajo. Sin Compare At Price se usa el Variant Price."
-            )
+    if data["priceBasis"] == PRICE_BASIS_COMPARE_AT_BEST_WINS:
+        with mensaje_col:
             data["missingCompareAtBehavior"] = "use_current_price"
             data["functionMessage"] = st.text_input(
                 "Mensaje del descuento",
                 value=data.get("functionMessage", "Se aplico el mejor precio disponible"),
                 key="stable_function_message",
             )
+        aviso(
+            "El cupon se calcula desde el precio original. Si el producto ya tiene una promocion mejor, "
+            "se conserva el precio mas bajo. Sin Compare At Price se usa el Variant Price."
+        )
 
-    with tab_vigencia:
-        bloque_vigencia(data)
+    st.write("")
+    seccion("3", "Vigencia", "Dia y hora de inicio y de fin. La hora se guarda en horario de Peru (-05:00).")
+    bloque_vigencia(data)
 
-    with tab_limites:
-        izq, der = st.columns(2)
-        with izq:
-            data["compraMinima"] = st.number_input(
-                "Compra minima (S/)",
-                min_value=0.0,
-                value=float(data["compraMinima"] or 0),
-                step=10.0,
-                key="stable_minimo",
-            )
-            data["limiteTotalUsos"] = st.number_input(
-                "Limite total de usos",
-                min_value=0,
-                value=int(data["limiteTotalUsos"] or 0),
-                step=1,
-                help="0 = sin limite.",
-                key="stable_limite",
-            )
-        with der:
-            data["descuentoMaximo"] = st.number_input(
-                "Descuento maximo (S/)",
-                min_value=0.0,
-                value=float(data.get("descuentoMaximo") or 0),
-                step=10.0,
-                help="0 = sin tope.",
-                key="stable_tope",
-            )
-            data["appliesTo"] = st.selectbox(
-                "Aplicabilidad",
-                ["Todos los productos", "Productos seleccionados", "Colecciones seleccionadas"],
-                index=["Todos los productos", "Productos seleccionados", "Colecciones seleccionadas"].index(
-                    data.get("appliesTo", "Todos los productos")
-                ),
-                key="stable_aplica",
-            )
+    st.write("")
+    seccion("4", "Restricciones", "Todo lo de este bloque es opcional. Cero significa sin limite.")
+    izq, der = st.columns(2)
+    with izq:
+        data["compraMinima"] = st.number_input(
+            "Compra minima (S/)",
+            min_value=0.0,
+            value=float(data["compraMinima"] or 0),
+            step=10.0,
+            key="stable_minimo",
+        )
+        data["limiteTotalUsos"] = st.number_input(
+            "Limite total de usos",
+            min_value=0,
+            value=int(data["limiteTotalUsos"] or 0),
+            step=1,
+            help="0 = sin limite.",
+            key="stable_limite",
+        )
+    with der:
+        data["descuentoMaximo"] = st.number_input(
+            "Descuento maximo (S/)",
+            min_value=0.0,
+            value=float(data.get("descuentoMaximo") or 0),
+            step=10.0,
+            help="0 = sin tope.",
+            key="stable_tope",
+        )
+        data["appliesTo"] = st.selectbox(
+            "Aplicabilidad",
+            ["Todos los productos", "Productos seleccionados", "Colecciones seleccionadas"],
+            index=["Todos los productos", "Productos seleccionados", "Colecciones seleccionadas"].index(
+                data.get("appliesTo", "Todos los productos")
+            ),
+            key="stable_aplica",
+        )
+
+    uso_col, comb_col = st.columns([1, 2])
+    with uso_col:
         data["unaVezPorCliente"] = st.checkbox(
             "Un solo uso por cliente", value=bool(data["unaVezPorCliente"]), key="stable_once"
         )
-
-        st.markdown('<div class="rango-tag">Combinaciones permitidas en Shopify</div>', unsafe_allow_html=True)
+    with comb_col:
+        st.markdown('<div class="rango-tag">Combina con otros descuentos de Shopify</div>', unsafe_allow_html=True)
         comb_cols = st.columns(3)
         with comb_cols[0]:
-            data["combinaProducto"] = st.toggle("Descuentos de producto", value=bool(data.get("combinaProducto")), key="stable_comb_prod")
+            data["combinaProducto"] = st.toggle("Producto", value=bool(data.get("combinaProducto")), key="stable_comb_prod")
         with comb_cols[1]:
-            data["combinaPedido"] = st.toggle("Descuentos de pedido", value=bool(data.get("combinaPedido")), key="stable_comb_order")
+            data["combinaPedido"] = st.toggle("Pedido", value=bool(data.get("combinaPedido")), key="stable_comb_order")
         with comb_cols[2]:
-            data["combinaEnvio"] = st.toggle("Descuentos de envio", value=bool(data.get("combinaEnvio")), key="stable_comb_ship")
+            data["combinaEnvio"] = st.toggle("Envio", value=bool(data.get("combinaEnvio")), key="stable_comb_ship")
 
-    with tab_tiendas:
-        all_site_ids = [site_cfg["id"] for site_cfg in enabled_sites]
-        site_options = {site_cfg["name"]: site_cfg["id"] for site_cfg in enabled_sites}
-        selected_site_names = [
-            site_cfg["name"] for site_cfg in enabled_sites if site_cfg["id"] in data.get("selectedSites", [])
-        ]
+    st.write("")
+    seccion("5", "Tiendas", "Donde se creara el cupon. Las tiendas sin token se marcan en ambar.")
+    all_site_ids = [site_cfg["id"] for site_cfg in enabled_sites]
+    site_options = {site_cfg["name"]: site_cfg["id"] for site_cfg in enabled_sites}
+    selected_site_names = [
+        site_cfg["name"] for site_cfg in enabled_sites if site_cfg["id"] in data.get("selectedSites", [])
+    ]
+    tiendas_col, acciones_col = st.columns([3, 1])
+    with tiendas_col:
         selected_site_names = st.multiselect(
             "Tiendas donde se creara el cupon",
             list(site_options),
             default=selected_site_names,
             key="stable_selected_sites",
+            label_visibility="collapsed",
         )
-        data["selectedSites"] = [site_options[name] for name in selected_site_names]
-
-        acciones = st.columns([1, 1, 2])
-        if acciones[0].button("Todas", key="stable_all_sites", **ancho()):
+    data["selectedSites"] = [site_options[name] for name in selected_site_names]
+    with acciones_col:
+        boton_todas, boton_limpiar = st.columns(2)
+        if boton_todas.button("Todas", key="stable_all_sites", **ancho()):
             data["selectedSites"] = all_site_ids
             st.session_state["coupon_data"] = data
             st.session_state.pop("stable_selected_sites", None)
             st.rerun()
-        if acciones[1].button("Limpiar", key="stable_clear_sites", **ancho()):
+        if boton_limpiar.button("Limpiar", key="stable_clear_sites", **ancho()):
             data["selectedSites"] = []
             st.session_state["coupon_data"] = data
             st.session_state.pop("stable_selected_sites", None)
             st.rerun()
 
-        chips_tiendas = "".join(
-            '<span class="pill ' + ("green" if shopify_is_configured(site_cfg["shop_key"]) else "orange") + '">'
-            + site_cfg["name"]
-            + ("" if shopify_is_configured(site_cfg["shop_key"]) else " sin token")
-            + "</span>"
-            for site_cfg in enabled_sites
-            if site_cfg["id"] in data["selectedSites"]
-        )
-        if chips_tiendas:
-            st.markdown('<div class="coupon-chip-row">' + chips_tiendas + "</div>", unsafe_allow_html=True)
+    chips_tiendas = "".join(
+        '<span class="pill ' + ("green" if shopify_is_configured(site_cfg["shop_key"]) else "orange") + '">'
+        + site_cfg["name"]
+        + ("" if shopify_is_configured(site_cfg["shop_key"]) else " sin token")
+        + "</span>"
+        for site_cfg in enabled_sites
+        if site_cfg["id"] in data["selectedSites"]
+    )
+    if chips_tiendas:
+        st.markdown('<div class="coupon-chip-row">' + chips_tiendas + "</div>", unsafe_allow_html=True)
 
+    st.write("")
     if mode == "Individual":
         data["couponCodes"] = [data.get("codigoCupon", "").strip().upper()] if data.get("codigoCupon") else []
     selected_shop_keys = {
@@ -1240,7 +1269,7 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
                     }
                 )
 
-    seccion("3", "Vista previa", str(len(preview_rows)) + " cupon(es) listos para crear en Shopify.")
+    seccion("6", "Vista previa", str(len(preview_rows)) + " cupon(es) listos para crear en Shopify.")
     if preview_rows:
         st.dataframe(pd.DataFrame(preview_rows), hide_index=True, **ancho())
     else:
@@ -1300,13 +1329,14 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
                 configured_checker=shopify_is_configured,
             )
             st.session_state["coupon_results"] = results
+            registrar_creacion(results, data, st.session_state.get("user_email", ""))
             status.update(label="Proceso terminado.", state="complete")
 
     if st.session_state["coupon_results"]:
         resultados = pd.DataFrame(st.session_state["coupon_results"])
         exitosos = int((resultados["status"] == "success").sum()) if "status" in resultados else 0
         fallidos = len(resultados) - exitosos
-        seccion("4", "Resultados", str(exitosos) + " creados, " + str(fallidos) + " con problema")
+        seccion("7", "Resultados", str(exitosos) + " creados, " + str(fallidos) + " con problema")
         st.dataframe(resultados, hide_index=True, **ancho())
         st.download_button(
             "Descargar resultados",
