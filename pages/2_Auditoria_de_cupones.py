@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import json
+from datetime import date, time
 import sys
 from pathlib import Path
 from urllib import request
@@ -25,9 +26,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from auditoria import (  # noqa: E402
     QUERY_CUPONES,
     QUERY_CUPONES_SIMPLE,
+    actualizar_cupon,
     aplanar_cupones,
     cambiar_estado_cupon,
     filtrar_cupones,
+    leer_detalle,
     leer_registro,
     resumen_cupones,
 )
@@ -47,6 +50,15 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 inject_css()
+
+
+QUERY_POR_CODIGO = """
+query CuponPorCodigo($code: String!) {
+  codeDiscountNodeByCode(code: $code) {
+    id
+  }
+}
+"""
 
 
 def obtener_config(shop_key: str) -> dict:
@@ -235,7 +247,11 @@ def pestana_shopify() -> None:
     )
 
     st.write("")
-    seccion("A", "Pausar o reactivar un cupon", "Cambia el estado en Shopify. No borra nada y se puede revertir.")
+    seccion(
+        "A",
+        "Editar, pausar o reactivar",
+        "Los cambios se aplican en Shopify sobre el cupon ya creado. Nada se borra y todo es reversible.",
+    )
     if not visibles:
         return
 
@@ -245,22 +261,178 @@ def pestana_shopify() -> None:
         if fila.get("ID")
     }
     if not opciones:
-        aviso("Los cupones listados no traen ID; no puedo cambiarles el estado.")
+        aviso("Los cupones listados no traen ID; no puedo modificarlos.")
         return
 
-    elegido_col, accion_col = st.columns([3, 1])
+    elegido_col, cargar_col = st.columns([3, 1])
     etiqueta = elegido_col.selectbox("Cupon", list(opciones))
     fila = opciones[etiqueta]
+    cargar_col.write("")
+    cargar_col.write("")
+    if cargar_col.button("Cargar datos", icon=":material/edit:", **ancho()):
+        sitio = next((s for s in sitios if s["name"] == fila["Sitio"]), None)
+        if sitio:
+            graphql = crear_graphql(obtener_config(sitio["shop_key"]))
+            st.session_state["auditoria_detalle"] = leer_detalle(graphql, fila["ID"])
+            st.session_state["auditoria_detalle_sitio"] = fila["Sitio"]
+
+    detalle = st.session_state.get("auditoria_detalle")
+    if not detalle or st.session_state.get("auditoria_detalle_sitio") != fila["Sitio"] or detalle.get("id") != fila["ID"]:
+        aviso("Elige un cupon y toca <b>Cargar datos</b> para editarlo.")
+        render_pausa(fila, sitios)
+        return
+
+    es_function = detalle.get("tipo") == "DiscountCodeApp"
+    st.caption(
+        "Editando "
+        + ", ".join(detalle.get("codigos") or ["-"])
+        + " en "
+        + fila["Sitio"]
+        + ("  ·  Function Best Wins" if es_function else "  ·  Cupon nativo")
+    )
+
+    campo_izq, campo_der = st.columns(2)
+    with campo_izq:
+        titulo = st.text_input("Titulo interno", value=detalle.get("titulo", ""), key="edit_titulo")
+        porcentaje = st.number_input(
+            "Descuento %",
+            min_value=0.0,
+            max_value=100.0,
+            value=float(detalle.get("porcentaje") or 0),
+            step=1.0,
+            key="edit_porcentaje",
+        )
+        compra_minima = st.number_input(
+            "Compra minima (S/)",
+            min_value=0.0,
+            value=float(detalle.get("compra_minima") or 0),
+            step=10.0,
+            key="edit_minimo",
+        )
+    with campo_der:
+        limite = st.number_input(
+            "Limite total de usos",
+            min_value=0,
+            value=int(detalle.get("limite_usos") or 0),
+            step=1,
+            help="0 = sin limite.",
+            key="edit_limite",
+        )
+        una_vez = st.checkbox(
+            "Un solo uso por cliente",
+            value=bool(detalle.get("una_vez_por_cliente")),
+            key="edit_una_vez",
+        )
+
+    st.markdown('<div class="rango-tag">Vigencia</div>', unsafe_allow_html=True)
+    inicio_dia, inicio_hora, fin_dia, fin_hora = st.columns(4)
+    fecha_i, hora_i = partir_iso(detalle.get("inicio"), time(0, 0))
+    fecha_f, hora_f = partir_iso(detalle.get("fin"), time(23, 59))
+    nueva_fecha_i = inicio_dia.date_input("Dia inicio", value=fecha_i, format="DD/MM/YYYY", key="edit_fecha_i")
+    nueva_hora_i = inicio_hora.time_input("Hora inicio", value=hora_i, step=300, key="edit_hora_i")
+    nueva_fecha_f = fin_dia.date_input("Dia fin", value=fecha_f, format="DD/MM/YYYY", min_value=nueva_fecha_i, key="edit_fecha_f")
+    nueva_hora_f = fin_hora.time_input("Hora fin", value=hora_f, step=300, key="edit_hora_f")
+
+    if es_function and compra_minima > 0:
+        aviso(
+            "En un cupon Best Wins la compra minima la evalua la Function desde el metafield "
+            "(<code>minimum_subtotal</code>), no Shopify. Confirma que la Function la implementa.",
+            "error",
+        )
+
+    cambios = {
+        "titulo": titulo,
+        "inicio": armar_iso(nueva_fecha_i, nueva_hora_i),
+        "fin": armar_iso(nueva_fecha_f, nueva_hora_f),
+        "limite_usos": limite,
+        "una_vez_por_cliente": una_vez,
+        "porcentaje": porcentaje,
+        "compra_minima": compra_minima,
+    }
+
+    todas = st.checkbox(
+        "Aplicar el mismo cambio en todas las tiendas donde exista el codigo "
+        + ", ".join(detalle.get("codigos") or []),
+        key="edit_todas",
+    )
+    confirmar = st.checkbox("Confirmo que quiero guardar estos cambios en Shopify", key="edit_confirmar")
+    if st.button("Guardar cambios", type="primary", disabled=not confirmar, icon=":material/save:"):
+        guardar_cambios(fila, sitios, detalle, cambios, todas)
+
+    st.write("")
+    render_pausa(fila, sitios)
+
+
+def partir_iso(valor, hora_defecto):
+    """Separa '2026-08-10T00:00:00-05:00' en (date, time)."""
+    texto_valor = str(valor or "")
+    try:
+        fecha = date.fromisoformat(texto_valor[:10])
+    except Exception:
+        fecha = date.today()
+    try:
+        hora = time(int(texto_valor[11:13]), int(texto_valor[14:16]))
+    except Exception:
+        hora = hora_defecto
+    return fecha, hora
+
+
+def armar_iso(fecha, hora) -> str:
+    return fecha.isoformat() + "T" + hora.strftime("%H:%M") + ":00-05:00"
+
+
+def guardar_cambios(fila: dict, sitios: list[dict], detalle: dict, cambios: dict, todas: bool) -> None:
+    objetivos = []
+    if todas:
+        codigos = [codigo for codigo in (detalle.get("codigos") or []) if codigo]
+        for sitio in sitios:
+            objetivos.append((sitio, codigos[0] if codigos else fila["Codigo"]))
+    else:
+        sitio = next((s for s in sitios if s["name"] == fila["Sitio"]), None)
+        if sitio:
+            objetivos.append((sitio, None))
+
+    resultados = []
+    for sitio, codigo in objetivos:
+        graphql = crear_graphql(obtener_config(sitio["shop_key"]))
+        if codigo is None:
+            detalle_sitio = detalle
+        else:
+            try:
+                datos = graphql(QUERY_POR_CODIGO, {"code": codigo})
+                nodo = (datos or {}).get("codeDiscountNodeByCode")
+                if not nodo:
+                    resultados.append({"Sitio": sitio["name"], "Resultado": "El codigo no existe en esta tienda"})
+                    continue
+                detalle_sitio = leer_detalle(graphql, nodo.get("id", ""))
+            except Exception as exc:
+                resultados.append({"Sitio": sitio["name"], "Resultado": str(exc)[:120]})
+                continue
+        if not detalle_sitio.get("id"):
+            resultados.append({"Sitio": sitio["name"], "Resultado": "No pude leer el cupon"})
+            continue
+        error = actualizar_cupon(graphql, detalle_sitio, cambios)
+        resultados.append({"Sitio": sitio["name"], "Resultado": error or "Actualizado"})
+
+    tabla = pd.DataFrame(resultados)
+    fallidos = int((tabla["Resultado"] != "Actualizado").sum()) if not tabla.empty else 0
+    if fallidos:
+        st.warning("Termino con " + str(fallidos) + " tienda(s) con problema.")
+    else:
+        st.success("Cambios guardados. Vuelve a consultar para ver los datos actualizados.")
+    st.dataframe(tabla, hide_index=True, **ancho())
+    st.session_state.pop("auditoria_filas", None)
+    st.session_state.pop("auditoria_detalle", None)
+
+
+def render_pausa(fila: dict, sitios: list[dict]) -> None:
     activar = str(fila.get("Estado", "")).lower() != "activo"
     accion = "Reactivar" if activar else "Pausar"
-
     confirmado = st.checkbox(
-        "Confirmo que quiero " + accion.lower() + " el cupon " + str(fila.get("Codigo", "")) + " en " + str(fila.get("Sitio", "")),
+        "Confirmo que quiero " + accion.lower() + " " + str(fila.get("Codigo", "")) + " en " + str(fila.get("Sitio", "")),
         key="auditoria_confirmar",
     )
-    accion_col.write("")
-    accion_col.write("")
-    if accion_col.button(accion, type="primary", disabled=not confirmado, **ancho()):
+    if st.button(accion, disabled=not confirmado, icon=":material/pause:"):
         sitio = next((s for s in sitios if s["name"] == fila["Sitio"]), None)
         if not sitio:
             st.error("No encontre la configuracion de esa tienda.")
