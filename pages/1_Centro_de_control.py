@@ -1,11 +1,10 @@
 """Centro de Control multitienda.
 
-Pagina nueva de Streamlit: no toca app.py. Streamlit la detecta sola por estar en
-`pages/` y la muestra en el menu lateral.
+Pagina de Streamlit dentro de `pages/`: la app la detecta sola y no toca `app.py`.
 
 Tres pestanas:
 
-1. Estado de tiendas: semaforo por tienda (token, permisos, Function) y que falta.
+1. Estado de tiendas: una tarjeta por tienda con token, permisos y Function.
 2. Simulador Best Wins: como queda el precio con productos reales de la tienda.
 3. Verificar codigo: si un codigo de cupon ya existe antes de crearlo.
 
@@ -36,25 +35,30 @@ from shopify_multisite import (  # noqa: E402
     FUNCTION_HANDLE_POR_DEFECTO,
     diagnosticar_tienda,
     expandir_tokens,
-    filas_tabla,
     recomendar_tokens,
     resumen_por_estado,
 )
+from ui_kit import (  # noqa: E402
+    ancho,
+    aviso,
+    encabezado,
+    imagen_data_uri,
+    inject_css,
+    seccion,
+)
 
-st.set_page_config(page_title="Centro de Control", layout="wide")
+st.set_page_config(
+    page_title="Centro de Control",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+inject_css()
 
-COLOR_ESTADO = {
-    ESTADO_LISTO: ("#0f9d58", "#e6f6ec"),
-    ESTADO_SOLO_BASICO: ("#c77700", "#fdf3e2"),
-    ESTADO_SIN_CONFIG: ("#5f6b7a", "#eef1f5"),
-    ESTADO_ERROR: ("#d93025", "#fdecea"),
-}
-
-ICONO_ESTADO = {
-    ESTADO_LISTO: "OK",
-    ESTADO_SOLO_BASICO: "!",
-    ESTADO_SIN_CONFIG: "-",
-    ESTADO_ERROR: "X",
+TONO_ESTADO = {
+    ESTADO_LISTO: "green",
+    ESTADO_SOLO_BASICO: "orange",
+    ESTADO_SIN_CONFIG: "muted",
+    ESTADO_ERROR: "red",
 }
 
 QUERY_PRODUCTOS = """
@@ -105,30 +109,14 @@ query BuscarCodigoSimple($code: String!) {
 """
 
 
-def ancho_completo() -> dict:
-    """`use_container_width` quedo deprecado y `width` no existe en Streamlit viejo."""
-    try:
-        mayor, menor = (int(parte) for parte in str(st.__version__).split(".")[:2])
-    except Exception:
-        return {"use_container_width": True}
-    return {"width": "stretch"} if (mayor, menor) >= (1, 49) else {"use_container_width": True}
-
-
-ANCHO = ancho_completo()
-
-
 def falta_config(config: dict) -> str:
-    """Devuelve el mensaje de lo que falta en Secrets, o cadena vacia si esta completo."""
-    dominio = str(config.get("shop_domain", "")).strip()
-    token = str(config.get("access_token") or config.get("admin_access_token") or "").strip()
+    """Devuelve que falta en Secrets, o cadena vacia si esta completo."""
     faltantes = []
-    if not dominio:
+    if not str(config.get("shop_domain", "")).strip():
         faltantes.append("shop_domain")
-    if not token:
+    if not str(config.get("access_token") or config.get("admin_access_token") or "").strip():
         faltantes.append("admin_access_token")
-    if not faltantes:
-        return ""
-    return "Falta " + " y ".join(faltantes) + " en Secrets para esta tienda."
+    return "Falta " + " y ".join(faltantes) + " en Secrets." if faltantes else ""
 
 
 def obtener_config(shop_key: str) -> dict:
@@ -141,8 +129,8 @@ def obtener_config(shop_key: str) -> dict:
             return {}
 
     try:
-        for seccion in ("shopify_sites", "shopify"):
-            bloque = como_dict(st.secrets.get(seccion, {}))
+        for seccion_secrets in ("shopify_sites", "shopify"):
+            bloque = como_dict(st.secrets.get(seccion_secrets, {}))
             config = como_dict(bloque.get(shop_key, {}))
             if config:
                 return config
@@ -186,6 +174,44 @@ def sitios_activos() -> list[dict]:
     return [sitio for sitio in COUPON_SHOPIFY_SITES if sitio.get("enabled", True)]
 
 
+def render_sidebar() -> None:
+    logo_src = imagen_data_uri("forus_logo.png")
+    marca = (
+        '<div class="brand-logo"><img src="' + logo_src + '" alt="FORUS"></div>'
+        if logo_src
+        else '<div class="brand-icon">R</div>'
+    )
+    st.sidebar.markdown(
+        '<div class="brand-card">'
+        + marca
+        + '<div><div class="brand-nombre">Revenue Control Center</div>'
+        '<div class="brand-sub">Cupones y descuentos Shopify</div></div></div>',
+        unsafe_allow_html=True,
+    )
+    with st.sidebar:
+        st.markdown('<div class="sidebar-label">Navegacion</div>', unsafe_allow_html=True)
+        if st.button("Volver a la app", icon=":material/arrow_back:", key="volver_app", **ancho()):
+            try:
+                st.switch_page("app.py")
+            except Exception:
+                st.warning("Abre la app principal desde el menu.")
+        st.button("Centro de Control", icon=":material/monitoring:", type="primary", disabled=True, **ancho())
+
+        correo = str(st.session_state.get("user_email", "")).strip()
+        if correo:
+            nombre = correo.split("@")[0].replace(".", " ").replace("_", " ").title()
+            partes = [parte for parte in nombre.split() if parte]
+            iniciales = "".join(parte[0] for parte in partes[:2]).upper() or "US"
+            st.markdown(
+                '<div class="nav-card user-card">'
+                '<div class="user-avatar">' + iniciales + "</div>"
+                '<div><div class="user-rol">Administrador</div>'
+                '<div class="user-nombre">' + nombre + "</div>"
+                '<div class="user-mail">' + correo + "</div></div></div>",
+                unsafe_allow_html=True,
+            )
+
+
 def revisar_tiendas(handle_esperado: str) -> list[dict]:
     filas = []
     sitios = sitios_activos()
@@ -212,25 +238,44 @@ def revisar_tiendas(handle_esperado: str) -> list[dict]:
 
 def tarjeta_metrica(titulo: str, valor: str, color: str, fondo: str) -> str:
     return (
-        '<div style="background:' + fondo + ';border-left:5px solid ' + color + ';'
-        'border-radius:12px;padding:14px 18px;">'
-        '<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#5f6b7a;">'
-        + titulo
-        + "</div>"
-        '<div style="font-size:30px;font-weight:700;color:' + color + ';line-height:1.1;">' + valor + "</div>"
+        '<div style="background:' + fondo + ";border-left:5px solid " + color + ";"
+        'border-radius:14px;padding:15px 18px;">'
+        '<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;'
+        'font-weight:700;color:#64748b;">' + titulo + "</div>"
+        '<div style="font-size:31px;font-weight:800;color:' + color + ';line-height:1.15;">' + valor + "</div>"
         "</div>"
     )
 
 
-def pintar_estado(fila: dict) -> str:
-    color, fondo = COLOR_ESTADO.get(fila["estado"], ("#5f6b7a", "#eef1f5"))
+def tarjeta_tienda(fila: dict) -> str:
+    estado = fila.get("estado", ESTADO_ERROR)
+    datos = [
+        ("Dominio", fila.get("dominio") or "-"),
+        ("App del token", fila.get("app") or "-"),
+        ("Plan", fila.get("plan") or "-"),
+        ("Function", fila.get("funcion_handle") or "-"),
+        ("Token", fila.get("token") or "-"),
+        ("write_discounts", "-" if not fila.get("scopes") else ("No" if fila.get("scopes_faltantes") else "Si")),
+    ]
+    lineas = "".join(
+        '<div class="dato-linea"><span class="dato-tag">' + etiqueta + "</span>"
+        '<span class="dato-valor">' + str(valor) + "</span></div>"
+        for etiqueta, valor in datos
+    )
+    detalle = ""
+    if fila.get("detalles"):
+        detalle = '<div class="tienda-detalle">' + "<br>".join(fila["detalles"]) + "</div>"
     return (
-        '<span style="background:' + fondo + ";color:" + color + ';padding:3px 10px;'
-        'border-radius:999px;font-size:12px;font-weight:700;">'
-        + ICONO_ESTADO.get(fila["estado"], "?")
-        + "  "
-        + ETIQUETA_ESTADO.get(fila["estado"], fila["estado"])
+        '<div class="tienda-card ' + estado + '">'
+        '<div class="tienda-head">'
+        '<div class="tienda-nombre">' + fila.get("sitio", "") + "</div>"
+        '<span class="pill ' + TONO_ESTADO.get(estado, "muted") + '">'
+        + ETIQUETA_ESTADO.get(estado, estado)
         + "</span>"
+        "</div>"
+        '<div class="tienda-datos">' + lineas + "</div>"
+        + detalle
+        + "</div>"
     )
 
 
@@ -240,69 +285,53 @@ def pestana_estado() -> None:
         handle = st.text_input(
             "Handle esperado de la Function",
             value=FUNCTION_HANDLE_POR_DEFECTO,
-            help="Si no lo sabes, dejalo vacio: se resuelve solo con el client_id de Secrets.",
+            help="Si no lo sabes, dejalo vacio: se resuelve con el client_id de Secrets.",
         )
     with derecha:
         st.write("")
         st.write("")
-        revisar = st.button("Revisar tiendas", type="primary", **ANCHO)
+        revisar = st.button("Revisar tiendas", type="primary", icon=":material/refresh:", **ancho())
 
     if revisar:
         st.session_state["panel_resultados"] = revisar_tiendas(handle.strip())
 
     resultados = st.session_state.get("panel_resultados")
     if not resultados:
-        st.info("Toca **Revisar tiendas** para leer el estado real de cada tienda en Shopify.")
+        aviso("Toca <b>Revisar tiendas</b> para leer el estado real de cada tienda en Shopify.")
         return
 
     resumen = resumen_por_estado(resultados)
     columnas = st.columns(4)
     tarjetas = [
-        ("Listas para Best Wins", resumen[ESTADO_LISTO], ESTADO_LISTO),
-        ("Solo precio actual", resumen[ESTADO_SOLO_BASICO], ESTADO_SOLO_BASICO),
-        ("Sin configurar", resumen[ESTADO_SIN_CONFIG], ESTADO_SIN_CONFIG),
-        ("Con error", resumen[ESTADO_ERROR], ESTADO_ERROR),
+        ("Listas para Best Wins", resumen[ESTADO_LISTO], "#0f9d58", "#e8f6ee"),
+        ("Solo precio actual", resumen[ESTADO_SOLO_BASICO], "#b45309", "#fdf4e3"),
+        ("Sin configurar", resumen[ESTADO_SIN_CONFIG], "#64748b", "#f1f5f9"),
+        ("Con error", resumen[ESTADO_ERROR], "#d93025", "#fdecea"),
     ]
-    for columna, (titulo, valor, estado) in zip(columnas, tarjetas):
-        color, fondo = COLOR_ESTADO[estado]
+    for columna, (titulo, valor, color, fondo) in zip(columnas, tarjetas):
         columna.markdown(tarjeta_metrica(titulo, str(valor), color, fondo), unsafe_allow_html=True)
-
-    st.write("")
-    st.dataframe(pd.DataFrame(filas_tabla(resultados)), hide_index=True, **ANCHO)
 
     recomendaciones = recomendar_tokens(resultados)
     if recomendaciones:
-        st.markdown("**Que token dejar en `admin_access_token`:**")
-        for mensaje in recomendaciones:
-            st.write("- " + mensaje)
+        aviso("<b>Que token dejar en admin_access_token:</b><br>" + "<br>".join(recomendaciones))
 
     st.write("")
-    st.markdown("### Detalle por tienda")
-    for fila in resultados:
-        etiqueta = fila["sitio"] + "  ·  " + ETIQUETA_ESTADO.get(fila["estado"], fila["estado"])
-        with st.expander(etiqueta, expanded=fila["estado"] == ESTADO_ERROR):
-            st.markdown(pintar_estado(fila), unsafe_allow_html=True)
-            datos = {
-                "Dominio": fila["dominio"] or "-",
-                "Tienda": fila["tienda"] or "-",
-                "Plan": fila["plan"] or "-",
-                "App del token": fila["app"] or "-",
-                "Function": fila["funcion_handle"] or "-",
-                "Function ID": fila["funcion_id"] or "-",
-                "Permisos": ", ".join(fila["scopes"]) or "-",
-            }
-            st.table(pd.DataFrame([datos]).T.rename(columns={0: "Valor"}))
-            for detalle in fila["detalles"]:
-                st.warning(detalle)
-            if fila["estado"] != ESTADO_LISTO:
-                st.caption("Secrets sugeridos para esta tienda:")
+    tarjetas_html = "".join(tarjeta_tienda(fila) for fila in resultados)
+    st.markdown('<div class="tienda-grid">' + tarjetas_html + "</div>", unsafe_allow_html=True)
+
+    pendientes = [fila for fila in resultados if fila["estado"] != ESTADO_LISTO]
+    if pendientes:
+        with st.expander("Secrets sugeridos para las tiendas pendientes"):
+            for fila in pendientes:
+                st.caption(fila["sitio"])
                 st.code(fila["secrets_sugeridos"], language="toml")
 
 
 def pestana_simulador() -> None:
-    st.caption(
-        "Trae productos reales de la tienda y muestra como quedaria el precio con el cupon. "
-        "Necesita el permiso `read_products` en la app."
+    seccion(
+        "S",
+        "Simulador Best Wins",
+        "Trae productos reales de la tienda y calcula como quedaria el precio con el cupon. Necesita read_products.",
     )
     columnas = st.columns([2, 1, 1])
     sitios = sitios_activos()
@@ -311,11 +340,10 @@ def pestana_simulador() -> None:
     porcentaje = columnas[1].number_input("Descuento %", min_value=1.0, max_value=100.0, value=40.0, step=5.0)
     cantidad = columnas[2].number_input("Productos", min_value=1, max_value=50, value=10, step=5)
 
-    if not st.button("Simular con productos reales", type="primary"):
+    if not st.button("Simular con productos reales", type="primary", icon=":material/play_arrow:"):
         return
 
-    shop_key = nombres[nombre]
-    config = obtener_config(shop_key)
+    config = obtener_config(nombres[nombre])
     problema = falta_config(config)
     if problema:
         st.error(problema)
@@ -337,11 +365,7 @@ def pestana_simulador() -> None:
     filas = []
     for producto in (datos.get("products") or {}).get("nodes") or []:
         for variante in (producto.get("variants") or {}).get("nodes") or []:
-            resultado = best_wins_line_result(
-                variante.get("price"),
-                variante.get("compareAtPrice"),
-                porcentaje,
-            )
+            resultado = best_wins_line_result(variante.get("price"), variante.get("compareAtPrice"), porcentaje)
             filas.append(
                 {
                     "Producto": producto.get("title", ""),
@@ -363,17 +387,21 @@ def pestana_simulador() -> None:
     metricas[0].metric("Variantes simuladas", len(tabla))
     metricas[1].metric("Gana el cupon", int((tabla["Estado"] == "Gana cupon").sum()))
     metricas[2].metric("Gana la promocion vigente", int((tabla["Estado"] == "Gana promocion actual").sum()))
-    st.dataframe(tabla, hide_index=True, **ANCHO)
+    st.dataframe(tabla, hide_index=True, **ancho())
     st.caption(
-        "`Ahorro extra` es lo que descuenta la Function sobre el precio vigente. "
-        "Cuando la promocion actual ya es mejor que el cupon, el ahorro extra es 0 y el precio no se toca."
+        "`Ahorro extra` es lo que descuenta la Function sobre el precio vigente. Cuando la promocion actual "
+        "ya es mejor que el cupon, el ahorro extra es 0 y el precio no se toca."
     )
 
 
 def pestana_codigos() -> None:
-    st.caption("Revisa en que tiendas ya existe un codigo, para no chocar al crearlo.")
-    codigo = st.text_input("Codigo del cupon", placeholder="BCP30").strip().upper()
-    if not st.button("Buscar en todas las tiendas", type="primary") or not codigo:
+    seccion("V", "Verificar codigo", "Revisa en que tiendas ya existe un codigo, para no chocar al crearlo.")
+    columna_codigo, columna_boton = st.columns([3, 1])
+    codigo = columna_codigo.text_input("Codigo del cupon", placeholder="BCP30").strip().upper()
+    columna_boton.write("")
+    columna_boton.write("")
+    buscar = columna_boton.button("Buscar", type="primary", icon=":material/search:", **ancho())
+    if not buscar or not codigo:
         return
 
     filas = []
@@ -395,12 +423,11 @@ def pestana_codigos() -> None:
                 continue
             descuento = nodo.get("codeDiscount") or {}
             detalle = str(descuento.get("title", "")) or str(descuento.get("__typename", ""))
-            estado = str(descuento.get("status", ""))
             filas.append(
                 {
                     "Sitio": sitio["name"],
                     "Existe": "Si",
-                    "Detalle": (detalle + " " + estado).strip(),
+                    "Detalle": (detalle + " " + str(descuento.get("status", ""))).strip(),
                 }
             )
         except Exception as exc:
@@ -412,20 +439,22 @@ def pestana_codigos() -> None:
         st.warning("El codigo " + codigo + " ya existe en " + str(ocupados) + " tienda(s).")
     else:
         st.success("El codigo " + codigo + " esta libre en todas las tiendas revisadas.")
-    st.dataframe(tabla, hide_index=True, **ANCHO)
+    st.dataframe(tabla, hide_index=True, **ancho())
 
 
 def main() -> None:
+    render_sidebar()
+
     if not st.session_state.get("authenticated"):
-        st.title("Centro de Control")
-        st.warning("Inicia sesion en la pantalla principal para entrar aqui.")
+        encabezado("Centro de Control", "Estado real de las tiendas Shopify.")
+        aviso("Inicia sesion en la pantalla principal para entrar aqui.", "error")
         st.stop()
 
-    st.title("Centro de Control multitienda")
-    st.caption(
-        "Estado real de las "
-        + str(len(sitios_activos()))
-        + " tiendas Shopify. Todo lo de esta pagina es de solo lectura."
+    encabezado(
+        "Centro de Control multitienda",
+        "Estado real de las " + str(len(sitios_activos())) + " tiendas Shopify. Todo aqui es de solo lectura.",
+        chip="Diagnostico",
+        hero=True,
     )
 
     estado, simulador, codigos = st.tabs(["Estado de tiendas", "Simulador Best Wins", "Verificar codigo"])
