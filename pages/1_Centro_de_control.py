@@ -196,6 +196,11 @@ def render_sidebar() -> None:
             except Exception:
                 st.warning("Abre la app principal desde el menu.")
         st.button("Centro de Control", icon=":material/monitoring:", type="primary", disabled=True, **ancho())
+        if st.button("Auditoria", icon=":material/fact_check:", key="ir_auditoria", **ancho()):
+            try:
+                st.switch_page("pages/2_Auditoria_de_cupones.py")
+            except Exception:
+                st.warning("Falta la pagina de auditoria en pages/.")
 
         correo = str(st.session_state.get("user_email", "")).strip()
         if correo:
