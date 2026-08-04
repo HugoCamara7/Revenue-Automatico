@@ -112,7 +112,9 @@ llamada a la API. Por eso:
 
 - API version: `2026-04`
 - Target: `cart.lines.discounts.generate.run`
-- Permisos de la app: `write_discounts`, `read_discounts`
+- Permisos de la app: `write_discounts`, `read_discounts` y **`read_products`**
+  (este ultimo lo necesitamos para listar colecciones y productos al armar cupones
+  dirigidos a una coleccion o a SKUs puntuales)
 
 ### B.5 Configuracion que enviamos en el metafield
 
@@ -135,12 +137,20 @@ Al crear cada cupon, nuestra app guarda este JSON en el descuento:
   "excluded_product_ids": [],
   "excluded_variant_ids": [],
   "maximum_discount_amount": null,
+  "minimum_subtotal": 299,
   "message": "Se aplico el mejor precio disponible"
 }
 ```
 
-La Function solo necesita leer `percentage` y `missing_compare_at_behavior`. Los demas
-campos estan reservados para reglas futuras.
+La Function necesita leer `percentage`, `missing_compare_at_behavior`, **`minimum_subtotal`**
+y **`applies_to` + `collection_ids` / `variant_ids`**: cuando el cupon apunta a una coleccion
+o a SKUs concretos, la Function solo debe descontar en las lineas que pertenezcan a esos IDs.
+
+Ojo con `minimum_subtotal`: `DiscountCodeAppInput` de la API 2026-04 **no acepta**
+`minimumRequirement`, asi que la compra minima de un cupon con Function no la valida
+Shopify. Tiene que evaluarla la Function: si el subtotal del carrito es menor a
+`minimum_subtotal`, no debe generar ningun candidato de descuento. Los demas campos
+estan reservados para reglas futuras.
 
 ### B.6 Logica exacta a implementar
 

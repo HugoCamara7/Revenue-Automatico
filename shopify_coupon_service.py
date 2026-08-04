@@ -33,7 +33,7 @@ def build_shopify_discount_payload(data: dict, customer_segment_id: str = "") ->
         },
         "context": customer_context,
         "customerGets": {
-            "items": {"all": True},
+            "items": data.get("itemsTarget") or {"all": True},
             "value": build_discount_value(data),
         },
     }
@@ -85,10 +85,9 @@ def build_shopify_app_discount_payload(
         payload["functionId"] = function_id
     if int(data.get("limiteTotalUsos") or 0) > 0:
         payload["usageLimit"] = int(data["limiteTotalUsos"])
-    if float(data.get("compraMinima") or 0) > 0:
-        payload["minimumRequirement"] = {
-            "subtotal": {"greaterThanOrEqualToSubtotal": str(round(float(data["compraMinima"]), 2))}
-        }
+    # DiscountCodeAppInput NO acepta minimumRequirement: mandarlo hace que Shopify
+    # rechace la mutation. La compra minima viaja dentro del metafield de
+    # configuracion (`minimum_subtotal`) y la evalua la Function.
     return payload
 
 
@@ -97,6 +96,7 @@ def create_coupon_for_multiple_sites(
     segment_ids_by_site: dict[str, str],
     shopify_create: Callable[[str, dict], dict],
     configured_checker: Callable[[str], bool],
+    targeting_por_tienda: dict[str, dict] | None = None,
 ) -> list[dict]:
     results = []
     selected_sites = set(data.get("selectedSites", []))
@@ -110,8 +110,20 @@ def create_coupon_for_multiple_sites(
                 results.append(result_row(site, data, code, "error", "Falta configurar Shopify API para este sitio."))
             continue
         for code in codes:
+            objetivo = (targeting_por_tienda or {}).get(site["shop_key"], {})
+            items = objetivo.get("items") or {"all": True}
+            avisos_objetivo = list(objetivo.get("avisos") or [])
             try:
                 code_data = {**data, "codigoCupon": code, "nombreInterno": data.get("nombreInterno") or code}
+                code_data["itemsTarget"] = items
+                code_data["collectionIds"] = (items.get("collections") or {}).get("add", [])
+                code_data["variantIds"] = (items.get("products") or {}).get("productVariantsToAdd", [])
+                if code_data["collectionIds"]:
+                    code_data["appliesToFunction"] = "collections"
+                elif code_data["variantIds"]:
+                    code_data["appliesToFunction"] = "variants"
+                else:
+                    code_data["appliesToFunction"] = "all_products"
                 if code_data.get("priceBasis") == PRICE_BASIS_COMPARE_AT_BEST_WINS:
                     code_data["missingCompareAtBehavior"] = "use_current_price"
                     function_handle = code_data.get("functionHandlesByShop", {}).get(site["shop_key"], "")
@@ -130,7 +142,10 @@ def create_coupon_for_multiple_sites(
                     or response.get("codeAppDiscount", {}).get("discountId")
                     or response.get("codeAppDiscount", {}).get("id")
                 )
-                results.append(result_row(site, code_data, code, "success", "Cupon creado correctamente.", discount_id))
+                mensaje_ok = "Cupon creado correctamente."
+                if avisos_objetivo:
+                    mensaje_ok += " Avisos: " + " | ".join(avisos_objetivo)
+                results.append(result_row(site, code_data, code, "success", mensaje_ok, discount_id))
             except Exception as exc:
                 message = str(exc)
                 status = "exists" if "already exists" in message.lower() or "taken" in message.lower() else "error"

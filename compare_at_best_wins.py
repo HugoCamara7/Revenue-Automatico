@@ -84,6 +84,7 @@ def build_function_configuration(data: dict) -> dict:
         "excluded_product_ids": data.get("excludedProductIds", []),
         "excluded_variant_ids": data.get("excludedVariantIds", []),
         "maximum_discount_amount": float(data.get("descuentoMaximo") or 0) or None,
+        "minimum_subtotal": float(data.get("compraMinima") or 0) or None,
         "message": data.get("functionMessage") or "Se aplico el mejor precio disponible",
     }
 

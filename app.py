@@ -24,6 +24,14 @@ from generar_matrixify_descuentos import (
     read_matrixify,
 )
 from auditoria import registrar_creacion
+from catalogo import (
+    APLICA_COLECCIONES,
+    APLICA_PRODUCTOS,
+    APLICA_TODOS,
+    buscar_variantes,
+    listar_colecciones,
+    resolver_en_tiendas,
+)
 from shopify_coupon_service import create_coupon_for_multiple_sites
 from ui_kit import (
     ancho,
@@ -981,6 +989,100 @@ def reiniciar_widgets_cupon() -> None:
         st.session_state.pop(clave, None)
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def cargar_colecciones(shop_key: str, texto: str) -> list[dict]:
+    return listar_colecciones(
+        lambda query, variables=None: shopify_graphql(shop_key, query, variables), texto, 100
+    )
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def cargar_variantes(shop_key: str, texto: str) -> list[dict]:
+    return buscar_variantes(
+        lambda query, variables=None: shopify_graphql(shop_key, query, variables), texto, 50
+    )
+
+
+def selector_catalogo(data: dict, shop_key: str) -> dict:
+    """Busca colecciones o productos de la tienda y devuelve la seleccion.
+
+    Se guardan handles y SKUs, no IDs: los IDs cambian de una tienda a otra y el mismo
+    cupon puede crearse en varias. Los IDs se resuelven al momento de crear.
+    """
+    seleccion = {"collectionHandles": list(data.get("collectionHandles") or []), "productSkus": list(data.get("productSkus") or [])}
+
+    if data["appliesTo"] == APLICA_COLECCIONES:
+        busqueda = st.text_input("Buscar coleccion por nombre", key="buscar_coleccion", placeholder="sale, zapatillas...")
+        try:
+            colecciones = cargar_colecciones(shop_key, busqueda)
+        except Exception as exc:
+            mensaje = str(exc)
+            if "read_products" in mensaje or "403" in mensaje or "access denied" in mensaje.lower():
+                aviso(
+                    "A la app le falta el permiso <code>read_products</code> para leer colecciones. "
+                    "Agregalo en los scopes y reinstala la app en la tienda.",
+                    "error",
+                )
+            else:
+                aviso("No pude leer las colecciones: " + mensaje[:200], "error")
+            return seleccion
+
+        if not colecciones:
+            aviso("Esa tienda no devolvio colecciones con ese nombre.")
+            return seleccion
+
+        etiquetas = {coleccion["titulo"] + "  (" + coleccion["handle"] + ")": coleccion["handle"] for coleccion in colecciones}
+        previas = [
+            etiqueta for etiqueta, handle in etiquetas.items() if handle in seleccion["collectionHandles"]
+        ]
+        elegidas = st.multiselect("Colecciones incluidas", list(etiquetas), default=previas, key="stable_colecciones")
+        seleccion["collectionHandles"] = [etiquetas[etiqueta] for etiqueta in elegidas]
+        if seleccion["collectionHandles"]:
+            chips = "".join('<span class="pill">' + handle + "</span>" for handle in seleccion["collectionHandles"])
+            st.markdown('<div class="coupon-chip-row">' + chips + "</div>", unsafe_allow_html=True)
+            st.caption("Se guarda el handle, no el ID: asi la misma seleccion sirve en las otras tiendas.")
+        return seleccion
+
+    busqueda = st.text_input("Buscar producto por SKU o nombre", key="buscar_producto", placeholder="ABC123-001")
+    pegados = st.text_area(
+        "O pega los SKUs, uno por linea",
+        value="\n".join(seleccion["productSkus"]),
+        height=90,
+        key="stable_skus_pegados",
+    )
+    skus = [linea.strip() for linea in str(pegados or "").splitlines() if linea.strip()]
+
+    if busqueda:
+        try:
+            variantes = cargar_variantes(shop_key, busqueda)
+        except Exception as exc:
+            mensaje = str(exc)
+            if "read_products" in mensaje or "403" in mensaje or "access denied" in mensaje.lower():
+                aviso(
+                    "A la app le falta el permiso <code>read_products</code> para leer productos. "
+                    "Agregalo en los scopes y reinstala la app en la tienda.",
+                    "error",
+                )
+            else:
+                aviso("No pude buscar productos: " + mensaje[:200], "error")
+            variantes = []
+        if variantes:
+            tabla = pd.DataFrame(
+                [
+                    {"SKU": variante["sku"], "Producto": variante["nombre"], "Precio": variante["precio"]}
+                    for variante in variantes
+                    if variante["sku"]
+                ]
+            )
+            st.caption("Copia los SKU que necesites al cuadro de arriba.")
+            st.dataframe(tabla, hide_index=True, **ancho())
+
+    seleccion["productSkus"] = skus
+    if skus:
+        st.caption(str(len(skus)) + " SKU(s) seleccionados. Se resuelven en cada tienda al crear el cupon.")
+    return seleccion
+
+
 def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
     shop_key = selected_site["shop_key"]
     if "coupon_data" not in st.session_state:
@@ -1135,13 +1237,122 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
             "El cupon se calcula desde el precio original. Si el producto ya tiene una promocion mejor, "
             "se conserva el precio mas bajo. Sin Compare At Price se usa el Variant Price."
         )
+        if float(data.get("compraMinima") or 0) > 0:
+            aviso(
+                "Con Best Wins la compra minima no la valida Shopify: viaja en el metafield "
+                "(<code>minimum_subtotal</code>) y la tiene que evaluar la Function. Confirma con quien "
+                "la desplego antes de lanzar un cupon de banco con minimo.",
+                "error",
+            )
 
     st.write("")
-    seccion("3", "Vigencia", "Dia y hora de inicio y de fin. La hora se guarda en horario de Peru (-05:00).")
+    if mode == "Individual":
+        seccion("3", "Tienda", "Un cupon individual se crea en una sola tienda, para poder elegir su catalogo.")
+        nombres_sitios = [site_cfg["name"] for site_cfg in enabled_sites]
+        actuales = [
+            site_cfg["name"] for site_cfg in enabled_sites if site_cfg["id"] in data.get("selectedSites", [])
+        ]
+        indice = nombres_sitios.index(actuales[0]) if actuales else 0
+        tienda_col, estado_col = st.columns([2, 1])
+        with tienda_col:
+            nombre_elegido = st.selectbox(
+                "Tienda donde se creara el cupon",
+                nombres_sitios,
+                index=indice,
+                key="stable_sitio_individual",
+            )
+        elegido = next(site_cfg for site_cfg in enabled_sites if site_cfg["name"] == nombre_elegido)
+        detectadas = len(data.get("selectedSites") or [])
+        data["selectedSites"] = [elegido["id"]]
+        if detectadas > 1:
+            aviso(
+                "El texto menciona " + str(detectadas) + " tiendas, pero en modo Individual el cupon "
+                "se crea solo en " + nombre_elegido + ". Cambia a <b>Masivo</b> si lo quieres en todas."
+            )
+        with estado_col:
+            st.write("")
+            st.write("")
+            listo = shopify_is_configured(elegido["shop_key"])
+            st.markdown(
+                '<div class="estado-pill' + ("" if listo else " warn") + '">'
+                '<span class="estado-punto"></span>'
+                + ("Shopify conectado" if listo else "Falta token")
+                + "</div>",
+                unsafe_allow_html=True,
+            )
+        tienda_catalogo = elegido["shop_key"]
+    else:
+        seccion("3", "Tiendas", "En modo masivo el mismo cupon se crea en todas las tiendas que elijas.")
+        all_site_ids = [site_cfg["id"] for site_cfg in enabled_sites]
+        site_options = {site_cfg["name"]: site_cfg["id"] for site_cfg in enabled_sites}
+        selected_site_names = [
+            site_cfg["name"] for site_cfg in enabled_sites if site_cfg["id"] in data.get("selectedSites", [])
+        ]
+        tiendas_col, acciones_col = st.columns([3, 1])
+        with tiendas_col:
+            selected_site_names = st.multiselect(
+                "Tiendas donde se creara el cupon",
+                list(site_options),
+                default=selected_site_names,
+                key="stable_selected_sites",
+                label_visibility="collapsed",
+            )
+        data["selectedSites"] = [site_options[name] for name in selected_site_names]
+        with acciones_col:
+            boton_todas, boton_limpiar = st.columns(2)
+            if boton_todas.button("Todas", key="stable_all_sites", **ancho()):
+                data["selectedSites"] = all_site_ids
+                st.session_state["coupon_data"] = data
+                st.session_state.pop("stable_selected_sites", None)
+                st.rerun()
+            if boton_limpiar.button("Limpiar", key="stable_clear_sites", **ancho()):
+                data["selectedSites"] = []
+                st.session_state["coupon_data"] = data
+                st.session_state.pop("stable_selected_sites", None)
+                st.rerun()
+
+        chips_tiendas = "".join(
+            '<span class="pill ' + ("green" if shopify_is_configured(site_cfg["shop_key"]) else "orange") + '">'
+            + site_cfg["name"]
+            + ("" if shopify_is_configured(site_cfg["shop_key"]) else " sin token")
+            + "</span>"
+            for site_cfg in enabled_sites
+            if site_cfg["id"] in data["selectedSites"]
+        )
+        if chips_tiendas:
+            st.markdown('<div class="coupon-chip-row">' + chips_tiendas + "</div>", unsafe_allow_html=True)
+        seleccionadas = [
+            site_cfg for site_cfg in enabled_sites if site_cfg["id"] in data["selectedSites"]
+        ]
+        tienda_catalogo = seleccionadas[0]["shop_key"] if seleccionadas else ""
+
+    st.write("")
+    seccion("4", "Alcance", "A que productos aplica el cupon. Por defecto, a todo el catalogo.")
+    data["appliesTo"] = st.selectbox(
+        "Aplicabilidad",
+        [APLICA_TODOS, APLICA_COLECCIONES, APLICA_PRODUCTOS],
+        index=[APLICA_TODOS, APLICA_COLECCIONES, APLICA_PRODUCTOS].index(
+            data.get("appliesTo", APLICA_TODOS) if data.get("appliesTo") in
+            (APLICA_TODOS, APLICA_COLECCIONES, APLICA_PRODUCTOS) else APLICA_TODOS
+        ),
+        key="stable_aplica",
+    )
+
+    if data["appliesTo"] != APLICA_TODOS:
+        if not tienda_catalogo or not shopify_is_configured(tienda_catalogo):
+            aviso("Elige primero una tienda con token para poder leer su catalogo.", "error")
+        else:
+            data.update(selector_catalogo(data, tienda_catalogo))
+    else:
+        data["collectionHandles"] = []
+        data["productSkus"] = []
+
+    st.write("")
+    seccion("5", "Vigencia", "Dia y hora de inicio y de fin. La hora se guarda en horario de Peru (-05:00).")
     bloque_vigencia(data)
 
     st.write("")
-    seccion("4", "Restricciones", "Todo lo de este bloque es opcional. Cero significa sin limite.")
+    seccion("6", "Restricciones", "Todo lo de este bloque es opcional. Cero significa sin limite.")
     izq, der = st.columns(2)
     with izq:
         data["compraMinima"] = st.number_input(
@@ -1168,70 +1379,25 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
             help="0 = sin tope.",
             key="stable_tope",
         )
-        data["appliesTo"] = st.selectbox(
-            "Aplicabilidad",
-            ["Todos los productos", "Productos seleccionados", "Colecciones seleccionadas"],
-            index=["Todos los productos", "Productos seleccionados", "Colecciones seleccionadas"].index(
-                data.get("appliesTo", "Todos los productos")
-            ),
-            key="stable_aplica",
-        )
-
-    uso_col, comb_col = st.columns([1, 2])
-    with uso_col:
         data["unaVezPorCliente"] = st.checkbox(
             "Un solo uso por cliente", value=bool(data["unaVezPorCliente"]), key="stable_once"
         )
-    with comb_col:
-        st.markdown('<div class="rango-tag">Combina con otros descuentos de Shopify</div>', unsafe_allow_html=True)
-        comb_cols = st.columns(3)
-        with comb_cols[0]:
-            data["combinaProducto"] = st.toggle("Producto", value=bool(data.get("combinaProducto")), key="stable_comb_prod")
-        with comb_cols[1]:
-            data["combinaPedido"] = st.toggle("Pedido", value=bool(data.get("combinaPedido")), key="stable_comb_order")
-        with comb_cols[2]:
-            data["combinaEnvio"] = st.toggle("Envio", value=bool(data.get("combinaEnvio")), key="stable_comb_ship")
 
-    st.write("")
-    seccion("5", "Tiendas", "Donde se creara el cupon. Las tiendas sin token se marcan en ambar.")
-    all_site_ids = [site_cfg["id"] for site_cfg in enabled_sites]
-    site_options = {site_cfg["name"]: site_cfg["id"] for site_cfg in enabled_sites}
-    selected_site_names = [
-        site_cfg["name"] for site_cfg in enabled_sites if site_cfg["id"] in data.get("selectedSites", [])
-    ]
-    tiendas_col, acciones_col = st.columns([3, 1])
-    with tiendas_col:
-        selected_site_names = st.multiselect(
-            "Tiendas donde se creara el cupon",
-            list(site_options),
-            default=selected_site_names,
-            key="stable_selected_sites",
-            label_visibility="collapsed",
+    st.markdown('<div class="rango-tag">Combina con otros descuentos de Shopify</div>', unsafe_allow_html=True)
+    comb_cols = st.columns(3)
+    with comb_cols[0]:
+        data["combinaProducto"] = st.toggle("Producto", value=bool(data.get("combinaProducto")), key="stable_comb_prod")
+    with comb_cols[1]:
+        data["combinaPedido"] = st.toggle("Pedido", value=bool(data.get("combinaPedido")), key="stable_comb_order")
+    with comb_cols[2]:
+        data["combinaEnvio"] = st.toggle("Envio", value=bool(data.get("combinaEnvio")), key="stable_comb_ship")
+
+    if data.get("priceBasis") == PRICE_BASIS_COMPARE_AT_BEST_WINS and float(data.get("compraMinima") or 0) > 0:
+        aviso(
+            "Con Best Wins la compra minima no la valida Shopify: viaja en el metafield "
+            "(<code>minimum_subtotal</code>) y la tiene que evaluar la Function.",
+            "error",
         )
-    data["selectedSites"] = [site_options[name] for name in selected_site_names]
-    with acciones_col:
-        boton_todas, boton_limpiar = st.columns(2)
-        if boton_todas.button("Todas", key="stable_all_sites", **ancho()):
-            data["selectedSites"] = all_site_ids
-            st.session_state["coupon_data"] = data
-            st.session_state.pop("stable_selected_sites", None)
-            st.rerun()
-        if boton_limpiar.button("Limpiar", key="stable_clear_sites", **ancho()):
-            data["selectedSites"] = []
-            st.session_state["coupon_data"] = data
-            st.session_state.pop("stable_selected_sites", None)
-            st.rerun()
-
-    chips_tiendas = "".join(
-        '<span class="pill ' + ("green" if shopify_is_configured(site_cfg["shop_key"]) else "orange") + '">'
-        + site_cfg["name"]
-        + ("" if shopify_is_configured(site_cfg["shop_key"]) else " sin token")
-        + "</span>"
-        for site_cfg in enabled_sites
-        if site_cfg["id"] in data["selectedSites"]
-    )
-    if chips_tiendas:
-        st.markdown('<div class="coupon-chip-row">' + chips_tiendas + "</div>", unsafe_allow_html=True)
 
     st.write("")
     if mode == "Individual":
@@ -1269,7 +1435,7 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
                     }
                 )
 
-    seccion("6", "Vista previa", str(len(preview_rows)) + " cupon(es) listos para crear en Shopify.")
+    seccion("7", "Vista previa", str(len(preview_rows)) + " cupon(es) listos para crear en Shopify.")
     if preview_rows:
         st.dataframe(pd.DataFrame(preview_rows), hide_index=True, **ancho())
     else:
@@ -1322,11 +1488,19 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
 
     if crear:
         with st.status("Creando cupones en Shopify...", expanded=True) as status:
+            targeting = resolver_en_tiendas(
+                data.get("selectedShopKeys", []),
+                lambda clave: (lambda query, variables=None: shopify_graphql(clave, query, variables)),
+                data.get("appliesTo", APLICA_TODOS),
+                data.get("collectionHandles", []),
+                data.get("productSkus", []),
+            )
             results = create_coupon_for_multiple_sites(
                 data,
                 segment_ids_by_site={},
                 shopify_create=create_shopify_coupon,
                 configured_checker=shopify_is_configured,
+                targeting_por_tienda=targeting,
             )
             st.session_state["coupon_results"] = results
             registrar_creacion(results, data, st.session_state.get("user_email", ""))
@@ -1336,7 +1510,7 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
         resultados = pd.DataFrame(st.session_state["coupon_results"])
         exitosos = int((resultados["status"] == "success").sum()) if "status" in resultados else 0
         fallidos = len(resultados) - exitosos
-        seccion("7", "Resultados", str(exitosos) + " creados, " + str(fallidos) + " con problema")
+        seccion("8", "Resultados", str(exitosos) + " creados, " + str(fallidos) + " con problema")
         st.dataframe(resultados, hide_index=True, **ancho())
         st.download_button(
             "Descargar resultados",

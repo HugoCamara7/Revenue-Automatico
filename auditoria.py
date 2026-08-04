@@ -97,6 +97,66 @@ query CuponesDeLaTiendaSimple($first: Int!) {
 }
 """
 
+QUERY_DETALLE = """
+query DetalleCupon($id: ID!) {
+  codeDiscountNode(id: $id) {
+    id
+    codeDiscount {
+      __typename
+      ... on DiscountCodeBasic {
+        title
+        status
+        startsAt
+        endsAt
+        usageLimit
+        appliesOncePerCustomer
+        codes(first: 5) { nodes { code } }
+        customerGets {
+          value {
+            ... on DiscountPercentage { percentage }
+            ... on DiscountAmount { amount { amount } }
+          }
+        }
+        minimumRequirement {
+          ... on DiscountMinimumSubtotal { greaterThanOrEqualToSubtotal { amount } }
+        }
+      }
+      ... on DiscountCodeApp {
+        title
+        status
+        startsAt
+        endsAt
+        usageLimit
+        appliesOncePerCustomer
+        codes(first: 5) { nodes { code } }
+      }
+    }
+    metafield(namespace: "$app:compare-at-best-wins", key: "function-configuration") {
+      id
+      jsonValue
+    }
+  }
+}
+"""
+
+MUTACION_ACTUALIZAR_BASICO = """
+mutation ActualizarCuponBasico($id: ID!, $basicCodeDiscount: DiscountCodeBasicInput!) {
+  discountCodeBasicUpdate(id: $id, basicCodeDiscount: $basicCodeDiscount) {
+    codeDiscountNode { id }
+    userErrors { field message }
+  }
+}
+"""
+
+MUTACION_ACTUALIZAR_APP = """
+mutation ActualizarCuponApp($id: ID!, $codeAppDiscount: DiscountCodeAppInput!) {
+  discountCodeAppUpdate(id: $id, codeAppDiscount: $codeAppDiscount) {
+    codeDiscountNode { id }
+    userErrors { field message }
+  }
+}
+"""
+
 MUTACION_DESACTIVAR = """
 mutation DesactivarCupon($id: ID!) {
   discountCodeDeactivate(id: $id) {
@@ -241,6 +301,135 @@ def filtrar_cupones(filas: list[dict], estado: str = "Todos", texto: str = "") -
                 continue
         resultado.append(fila)
     return resultado
+
+
+def leer_detalle(graphql, discount_id: str) -> dict:
+    """Trae los datos editables de un cupon. Devuelve {} si no se pudo leer."""
+    try:
+        datos = graphql(QUERY_DETALLE, {"id": discount_id})
+    except Exception:
+        return {}
+    nodo = (datos or {}).get("codeDiscountNode") or {}
+    descuento = nodo.get("codeDiscount") or {}
+    metafield = nodo.get("metafield") or {}
+    valor = (descuento.get("customerGets") or {}).get("value") or {}
+    minimo = descuento.get("minimumRequirement") or {}
+    porcentaje = valor.get("percentage")
+    configuracion = metafield.get("jsonValue") or {}
+    if porcentaje is None and configuracion.get("percentage") is not None:
+        porcentaje_final = float(configuracion.get("percentage") or 0)
+    else:
+        porcentaje_final = float(porcentaje or 0) * 100
+
+    return {
+        "id": nodo.get("id", discount_id),
+        "tipo": descuento.get("__typename", ""),
+        "titulo": descuento.get("title", "") or "",
+        "estado": str(descuento.get("status", "")).upper(),
+        "inicio": descuento.get("startsAt") or "",
+        "fin": descuento.get("endsAt") or "",
+        "limite_usos": descuento.get("usageLimit"),
+        "una_vez_por_cliente": bool(descuento.get("appliesOncePerCustomer")),
+        "codigos": [
+            str(item.get("code", "")) for item in ((descuento.get("codes") or {}).get("nodes") or [])
+        ],
+        "porcentaje": porcentaje_final,
+        "compra_minima": float(
+            ((minimo.get("greaterThanOrEqualToSubtotal") or {}).get("amount") or 0)
+        ),
+        "metafield_id": metafield.get("id", ""),
+        "configuracion": dict(configuracion) if isinstance(configuracion, dict) else {},
+    }
+
+
+def construir_actualizacion(detalle: dict, cambios: dict) -> tuple[str, dict]:
+    """Arma (mutacion, input) para actualizar un cupon.
+
+    Solo se mandan los campos que realmente cambian: las mutations de Shopify aceptan
+    updates parciales y asi no se pisa configuracion que no estamos editando.
+    """
+    es_app = detalle.get("tipo") == "DiscountCodeApp"
+    entrada: dict = {}
+
+    if cambios.get("titulo") and cambios["titulo"] != detalle.get("titulo"):
+        entrada["title"] = cambios["titulo"]
+    if cambios.get("inicio"):
+        entrada["startsAt"] = cambios["inicio"]
+    if cambios.get("fin"):
+        entrada["endsAt"] = cambios["fin"]
+    if "limite_usos" in cambios:
+        limite = int(cambios["limite_usos"] or 0)
+        entrada["usageLimit"] = limite if limite > 0 else None
+    if "una_vez_por_cliente" in cambios:
+        entrada["appliesOncePerCustomer"] = bool(cambios["una_vez_por_cliente"])
+
+    porcentaje_nuevo = cambios.get("porcentaje")
+    cambia_porcentaje = porcentaje_nuevo is not None and float(porcentaje_nuevo) != float(
+        detalle.get("porcentaje") or 0
+    )
+
+    if es_app:
+        if cambia_porcentaje or "compra_minima" in cambios:
+            configuracion = dict(detalle.get("configuracion") or {})
+            if cambia_porcentaje:
+                configuracion["percentage"] = float(porcentaje_nuevo)
+            if "compra_minima" in cambios:
+                minimo = float(cambios["compra_minima"] or 0)
+                configuracion["minimum_subtotal"] = minimo or None
+            metafield = {"value": json_compacto(configuracion)}
+            if detalle.get("metafield_id"):
+                metafield["id"] = detalle["metafield_id"]
+            else:
+                metafield.update(
+                    {
+                        "namespace": "$app:compare-at-best-wins",
+                        "key": "function-configuration",
+                        "type": "json",
+                    }
+                )
+            entrada["metafields"] = [metafield]
+        return MUTACION_ACTUALIZAR_APP, entrada
+
+    if cambia_porcentaje:
+        entrada["customerGets"] = {
+            "items": {"all": True},
+            "value": {"percentage": float(porcentaje_nuevo) / 100},
+        }
+    if "compra_minima" in cambios:
+        minimo = float(cambios["compra_minima"] or 0)
+        if minimo > 0:
+            entrada["minimumRequirement"] = {
+                "subtotal": {"greaterThanOrEqualToSubtotal": str(round(minimo, 2))}
+            }
+        else:
+            entrada["minimumRequirement"] = {"subtotal": {"greaterThanOrEqualToSubtotal": "0"}}
+    return MUTACION_ACTUALIZAR_BASICO, entrada
+
+
+def json_compacto(valor: dict) -> str:
+    import json
+
+    return json.dumps(valor, ensure_ascii=False, separators=(",", ":"))
+
+
+def actualizar_cupon(graphql, detalle: dict, cambios: dict) -> str:
+    """Aplica los cambios. Devuelve mensaje de error, o cadena vacia si salio bien."""
+    if not detalle.get("id"):
+        return "Falta el ID del cupon."
+    mutacion, entrada = construir_actualizacion(detalle, cambios)
+    if not entrada:
+        return "No hay cambios que guardar."
+    es_app = mutacion is MUTACION_ACTUALIZAR_APP
+    variable = "codeAppDiscount" if es_app else "basicCodeDiscount"
+    clave = "discountCodeAppUpdate" if es_app else "discountCodeBasicUpdate"
+    try:
+        datos = graphql(mutacion, {"id": detalle["id"], variable: entrada})
+    except Exception as exc:
+        return str(exc)[:300]
+    errores = ((datos or {}).get(clave) or {}).get("userErrors") or []
+    if errores:
+        return "; ".join(str(error.get("message", "")) for error in errores)
+    return ""
 
 
 def cambiar_estado_cupon(graphql, discount_id: str, activar: bool) -> str:
