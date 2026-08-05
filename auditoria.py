@@ -446,3 +446,79 @@ def cambiar_estado_cupon(graphql, discount_id: str, activar: bool) -> str:
     if errores:
         return "; ".join(str(error.get("message", "")) for error in errores)
     return ""
+
+
+QUERY_ALCANCE = """
+query AlcanceCupon($id: ID!) {
+  codeDiscountNode(id: $id) {
+    codeDiscount {
+      __typename
+      ... on DiscountCodeBasic {
+        customerGets {
+          items {
+            __typename
+            ... on DiscountCollections { collections(first: 10) { nodes { title handle } } }
+            ... on DiscountProducts {
+              products(first: 10) { nodes { title } }
+              productVariants(first: 10) { nodes { sku } }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+QUERY_ALCANCE_SIMPLE = """
+query AlcanceCuponSimple($id: ID!) {
+  codeDiscountNode(id: $id) {
+    codeDiscount {
+      __typename
+      ... on DiscountCodeBasic {
+        customerGets { items { __typename } }
+      }
+    }
+  }
+}
+"""
+
+
+def describir_alcance(graphql, discount_id: str) -> str:
+    """Que dice Shopify que alcanza el cupon. Sirve para confirmar despues de crear."""
+    if not str(discount_id or "").strip():
+        return "Sin ID"
+    try:
+        try:
+            datos = graphql(QUERY_ALCANCE, {"id": discount_id})
+        except Exception:
+            datos = graphql(QUERY_ALCANCE_SIMPLE, {"id": discount_id})
+    except Exception as exc:
+        return "No pude verificar: " + str(exc)[:80]
+
+    descuento = ((datos or {}).get("codeDiscountNode") or {}).get("codeDiscount") or {}
+    if descuento.get("__typename") == "DiscountCodeApp":
+        return "Lo decide la Function (Shopify no lo expone)"
+
+    items = (descuento.get("customerGets") or {}).get("items") or {}
+    tipo = items.get("__typename", "")
+    if tipo == "DiscountCollections":
+        nombres = [
+            str(nodo.get("title", "")) for nodo in ((items.get("collections") or {}).get("nodes") or [])
+        ]
+        return "Colecciones: " + (", ".join(nombres) if nombres else "sin detalle")
+    if tipo == "DiscountProducts":
+        productos = (items.get("products") or {}).get("nodes") or []
+        variantes = (items.get("productVariants") or {}).get("nodes") or []
+        if productos:
+            return str(len(productos)) + " producto(s): " + ", ".join(
+                str(nodo.get("title", "")) for nodo in productos[:3]
+            )
+        if variantes:
+            return str(len(variantes)) + " variante(s): " + ", ".join(
+                str(nodo.get("sku", "")) for nodo in variantes[:3]
+            )
+        return "Productos seleccionados"
+    if tipo == "AllDiscountItems":
+        return "TODO el catalogo"
+    return tipo or "Sin detalle"

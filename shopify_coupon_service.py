@@ -116,14 +116,13 @@ def create_coupon_for_multiple_sites(
             try:
                 code_data = {**data, "codigoCupon": code, "nombreInterno": data.get("nombreInterno") or code}
                 code_data["itemsTarget"] = items
-                code_data["collectionIds"] = (items.get("collections") or {}).get("add", [])
-                code_data["variantIds"] = (items.get("products") or {}).get("productVariantsToAdd", [])
-                if code_data["collectionIds"]:
-                    code_data["appliesToFunction"] = "collections"
-                elif code_data["variantIds"]:
-                    code_data["appliesToFunction"] = "variants"
-                else:
-                    code_data["appliesToFunction"] = "all_products"
+                # Alcance para la Function: siempre en IDs de producto o variante,
+                # porque es lo unico que puede comparar contra las lineas del carrito.
+                alcance = objetivo.get("function") or {}
+                code_data["productIds"] = alcance.get("product_ids", [])
+                code_data["variantIds"] = alcance.get("variant_ids", [])
+                code_data["collectionIds"] = alcance.get("collection_ids", [])
+                code_data["appliesToFunction"] = alcance.get("applies_to", "all_products")
                 if code_data.get("priceBasis") == PRICE_BASIS_COMPARE_AT_BEST_WINS:
                     code_data["missingCompareAtBehavior"] = "use_current_price"
                     function_handle = code_data.get("functionHandlesByShop", {}).get(site["shop_key"], "")

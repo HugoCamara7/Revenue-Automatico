@@ -23,13 +23,17 @@ from generar_matrixify_descuentos import (
     normalize_key,
     read_matrixify,
 )
-from auditoria import registrar_creacion
+from auditoria import describir_alcance, registrar_creacion
 from catalogo import (
     APLICA_COLECCIONES,
+    APLICA_FILTRO,
     APLICA_PRODUCTOS,
     APLICA_TODOS,
+    buscar_por_filtro,
     buscar_variantes,
+    construir_query_busqueda,
     listar_colecciones,
+    listar_facetas,
     resolver_en_tiendas,
 )
 from shopify_coupon_service import create_coupon_for_multiple_sites
@@ -1003,6 +1007,102 @@ def cargar_variantes(shop_key: str, texto: str) -> list[dict]:
     )
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def cargar_facetas(shop_key: str) -> dict:
+    return listar_facetas(lambda query, variables=None: shopify_graphql(shop_key, query, variables))
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def cargar_por_filtro(shop_key: str, consulta: str) -> list[dict]:
+    return buscar_por_filtro(
+        lambda query, variables=None: shopify_graphql(shop_key, query, variables), consulta, 50
+    )
+
+
+def selector_filtro(data: dict, shop_key: str) -> dict:
+    """Arma un filtro por marca, tipo o etiquetas y muestra que productos alcanza."""
+    seleccion = {"collectionHandles": [], "productSkus": [], "filtroBusqueda": ""}
+    try:
+        facetas = cargar_facetas(shop_key)
+    except Exception as exc:
+        mensaje = str(exc)
+        if "read_products" in mensaje or "403" in mensaje or "access denied" in mensaje.lower():
+            aviso(
+                "A la app le falta el permiso <code>read_products</code> para leer el catalogo. "
+                "Agregalo en los scopes y reinstala la app en la tienda.",
+                "error",
+            )
+        else:
+            aviso("No pude leer el catalogo: " + mensaje[:200], "error")
+        return seleccion
+
+    guardado = data.get("filtroCampos") or {}
+    marca_col, tipo_col = st.columns(2)
+    with marca_col:
+        marcas = [""] + facetas.get("marcas", [])
+        marca = st.selectbox(
+            "Marca (vendor)",
+            marcas,
+            index=marcas.index(guardado.get("marca")) if guardado.get("marca") in marcas else 0,
+            key="filtro_marca",
+        )
+    with tipo_col:
+        tipos = [""] + facetas.get("tipos", [])
+        tipo = st.selectbox(
+            "Tipo de producto",
+            tipos,
+            index=tipos.index(guardado.get("tipo")) if guardado.get("tipo") in tipos else 0,
+            key="filtro_tipo",
+        )
+
+    etiquetas_disponibles = facetas.get("etiquetas", [])
+    etiquetas = st.multiselect(
+        "Etiquetas (genero, temporada, campana...)",
+        etiquetas_disponibles,
+        default=[e for e in guardado.get("etiquetas", []) if e in etiquetas_disponibles],
+        key="filtro_tags",
+        help="Son los tags del producto en Shopify. Ahi suele estar el genero.",
+    )
+    texto = st.text_input("Palabra en el titulo (opcional)", value=guardado.get("texto", ""), key="filtro_texto")
+
+    consulta = construir_query_busqueda(marca, tipo, etiquetas, texto)
+    seleccion["filtroCampos"] = {"marca": marca, "tipo": tipo, "etiquetas": etiquetas, "texto": texto}
+    seleccion["filtroBusqueda"] = consulta
+
+    if not consulta:
+        aviso("Elige al menos un criterio para acotar el alcance.")
+        return seleccion
+
+    st.caption("Consulta que se ejecutara en cada tienda: " + consulta)
+    try:
+        productos = cargar_por_filtro(shop_key, consulta)
+    except Exception as exc:
+        aviso("No pude ejecutar el filtro: " + str(exc)[:200], "error")
+        return seleccion
+
+    if not productos:
+        aviso("Ese filtro no devuelve productos en esta tienda.", "error")
+        return seleccion
+
+    st.caption("Vista previa: " + str(len(productos)) + " producto(s) (maximo 50 mostrados)")
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {"Producto": p["titulo"], "Marca": p["marca"], "Tipo": p["tipo"], "Etiquetas": p["etiquetas"]}
+                for p in productos
+            ]
+        ),
+        hide_index=True,
+        **ancho(),
+    )
+    if len(productos) >= 50:
+        aviso(
+            "El filtro alcanza muchos productos. Al crear el cupon se toman hasta 250; si tu segmento es "
+            "permanente, conviene crear una coleccion automatica en Shopify y apuntar a ella."
+        )
+    return seleccion
+
+
 def selector_catalogo(data: dict, shop_key: str) -> dict:
     """Busca colecciones o productos de la tienda y devuelve la seleccion.
 
@@ -1042,6 +1142,9 @@ def selector_catalogo(data: dict, shop_key: str) -> dict:
             st.markdown('<div class="coupon-chip-row">' + chips + "</div>", unsafe_allow_html=True)
             st.caption("Se guarda el handle, no el ID: asi la misma seleccion sirve en las otras tiendas.")
         return seleccion
+
+    if data["appliesTo"] == APLICA_FILTRO:
+        return selector_filtro(data, shop_key)
 
     busqueda = st.text_input("Buscar producto por SKU o nombre", key="buscar_producto", placeholder="ABC123-001")
     pegados = st.text_area(
@@ -1328,15 +1431,21 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
 
     st.write("")
     seccion("4", "Alcance", "A que productos aplica el cupon. Por defecto, a todo el catalogo.")
+    opciones_alcance = [APLICA_TODOS, APLICA_COLECCIONES, APLICA_FILTRO, APLICA_PRODUCTOS]
     data["appliesTo"] = st.selectbox(
         "Aplicabilidad",
-        [APLICA_TODOS, APLICA_COLECCIONES, APLICA_PRODUCTOS],
-        index=[APLICA_TODOS, APLICA_COLECCIONES, APLICA_PRODUCTOS].index(
-            data.get("appliesTo", APLICA_TODOS) if data.get("appliesTo") in
-            (APLICA_TODOS, APLICA_COLECCIONES, APLICA_PRODUCTOS) else APLICA_TODOS
+        opciones_alcance,
+        index=opciones_alcance.index(
+            data.get("appliesTo") if data.get("appliesTo") in opciones_alcance else APLICA_TODOS
         ),
         key="stable_aplica",
     )
+    if data["appliesTo"] != APLICA_TODOS and data.get("priceBasis") == PRICE_BASIS_COMPARE_AT_BEST_WINS:
+        aviso(
+            "Con <b>Best Wins</b> la app traduce el alcance a IDs de producto y los manda en el metafield "
+            "(<code>product_ids</code>). La Function tiene que filtrar por esa lista: si todavia no lo hace, "
+            "el cupon va a descontar en todo el carrito. Ver seccion B.9 del brief para TI."
+        )
 
     if data["appliesTo"] != APLICA_TODOS:
         if not tienda_catalogo or not shopify_is_configured(tienda_catalogo):
@@ -1346,6 +1455,7 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
     else:
         data["collectionHandles"] = []
         data["productSkus"] = []
+        data["filtroBusqueda"] = ""
 
     st.write("")
     seccion("5", "Vigencia", "Dia y hora de inicio y de fin. La hora se guarda en horario de Peru (-05:00).")
@@ -1494,6 +1604,8 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
                 data.get("appliesTo", APLICA_TODOS),
                 data.get("collectionHandles", []),
                 data.get("productSkus", []),
+                data.get("filtroBusqueda", ""),
+                para_function=data.get("priceBasis") == PRICE_BASIS_COMPARE_AT_BEST_WINS,
             )
             results = create_coupon_for_multiple_sites(
                 data,
@@ -1502,6 +1614,14 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
                 configured_checker=shopify_is_configured,
                 targeting_por_tienda=targeting,
             )
+            for resultado in results:
+                if resultado.get("status") == "success" and resultado.get("shopifyDiscountId"):
+                    clave_tienda = selected_shop_keys.get(resultado.get("siteId"), "")
+                    if clave_tienda:
+                        resultado["alcanceShopify"] = describir_alcance(
+                            lambda query, variables=None, _c=clave_tienda: shopify_graphql(_c, query, variables),
+                            resultado["shopifyDiscountId"],
+                        )
             st.session_state["coupon_results"] = results
             registrar_creacion(results, data, st.session_state.get("user_email", ""))
             status.update(label="Proceso terminado.", state="complete")
