@@ -188,9 +188,9 @@ def resolver_para_tienda(
 
     if aplica_a == APLICA_PRODUCTOS:
         ids, faltantes = resolver_variantes(graphql, skus)
-        avisos = ["SKU no encontrado: " + sku for sku in faltantes]
+        avisos = ["Producto no encontrado: " + sku for sku in faltantes]
         if not ids:
-            avisos.append("Ningun SKU existe en esta tienda; el cupon quedaria sin alcance.")
+            avisos.append("Ninguno de esos productos existe en esta tienda.")
         return construir_items(aplica_a, [], ids), avisos
 
     if aplica_a == APLICA_FILTRO:
@@ -474,9 +474,9 @@ def resolver_para_function(
         productos, avisos_expansion = expandir_colecciones_a_productos(graphql, ids_colecciones)
         avisos.extend(avisos_expansion)
         if productos:
-            avisos.insert(0, str(len(productos)) + " producto(s) de la coleccion enviados a la Function.")
+            avisos.insert(0, str(len(productos)) + " producto(s) alcanzados por la coleccion.")
         else:
-            avisos.append("La coleccion no tiene productos en esta tienda; el cupon no descontaria nada.")
+            avisos.append("La coleccion no tiene productos en esta tienda: el cupon no descontaria nada.")
         return {
             "applies_to": "products",
             "product_ids": productos,
@@ -487,12 +487,12 @@ def resolver_para_function(
 
     if aplica_a == APLICA_PRODUCTOS:
         ids, faltantes = resolver_variantes(graphql, skus)
-        avisos = ["SKU no encontrado: " + sku for sku in faltantes]
+        avisos = ["Producto no encontrado: " + sku for sku in faltantes]
         if not ids:
-            avisos.append("Ningun SKU existe en esta tienda; el cupon no descontaria nada.")
+            avisos.append("Ninguno de esos productos existe en esta tienda: el cupon no descontaria nada.")
         return {"applies_to": "variants", "product_ids": [], "variant_ids": ids, "avisos": avisos}
 
     ids, avisos = resolver_por_filtro(graphql, consulta, LIMITE_PRODUCTOS_FUNCTION)
     if ids:
-        avisos.insert(0, str(len(ids)) + " producto(s) del filtro enviados a la Function.")
+        avisos.insert(0, str(len(ids)) + " producto(s) alcanzados por el filtro.")
     return {"applies_to": "products", "product_ids": ids, "variant_ids": [], "avisos": avisos}

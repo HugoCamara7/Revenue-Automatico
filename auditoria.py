@@ -498,7 +498,7 @@ def describir_alcance(graphql, discount_id: str) -> str:
 
     descuento = ((datos or {}).get("codeDiscountNode") or {}).get("codeDiscount") or {}
     if descuento.get("__typename") == "DiscountCodeApp":
-        return "Lo decide la Function (Shopify no lo expone)"
+        return "Definido por la app"
 
     items = (descuento.get("customerGets") or {}).get("items") or {}
     tipo = items.get("__typename", "")

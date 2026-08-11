@@ -23,6 +23,7 @@ from generar_matrixify_descuentos import (
     normalize_key,
     read_matrixify,
 )
+from accesos import bloque_alta, correos_habilitados, verificar
 from auditoria import describir_alcance, registrar_creacion
 from catalogo import (
     APLICA_COLECCIONES,
@@ -465,34 +466,7 @@ def get_auth_config() -> dict:
 
 
 def valid_login(email: str, password: str) -> bool:
-    config = get_auth_config()
-    login_email = clean_auth_text(email).lower()
-    login_password = clean_auth_text(password)
-    user_list = config.get("users_list", [])
-    if isinstance(user_list, list):
-        for user in user_list:
-            if not isinstance(user, dict):
-                continue
-            stored_email = clean_auth_text(user.get("email", "")).lower()
-            stored_password = clean_auth_text(user.get("password", ""))
-            if stored_email == login_email and stored_password == login_password:
-                return True
-    users_config = config.get("users", {})
-    if isinstance(users_config, list):
-        for user in users_config:
-            if not isinstance(user, dict):
-                continue
-            stored_email = clean_auth_text(user.get("email", "")).lower()
-            stored_password = clean_auth_text(user.get("password", ""))
-            if stored_email == login_email and stored_password == login_password:
-                return True
-    users = dict(users_config) if hasattr(users_config, "items") else {}
-    if users:
-        normalized_users = {clean_auth_text(key).lower(): clean_auth_text(value) for key, value in users.items()}
-        return normalized_users.get(login_email) == login_password
-    allowed = [clean_auth_text(value).lower() for value in config.get("allowed_emails", [])]
-    shared_password = clean_auth_text(config.get("password", ""))
-    return bool(login_email in allowed and login_password == shared_password)
+    return verificar(email, password, get_auth_config())
 
 
 def render_login() -> None:
@@ -580,6 +554,21 @@ def render_sidebar_identidad() -> None:
         "</div></div>",
         unsafe_allow_html=True,
     )
+    with st.sidebar.expander("Quien tiene acceso"):
+        correos = correos_habilitados(get_auth_config())
+        if correos:
+            st.caption(str(len(correos)) + " persona(s) con acceso:")
+            for correo_usuario in correos:
+                st.markdown('<div class="user-mail">' + correo_usuario + "</div>", unsafe_allow_html=True)
+        else:
+            st.caption("No hay usuarios configurados.")
+        nuevo = st.text_input("Correo a habilitar", placeholder="nombre@forus.pe", key="alta_correo")
+        clave_nueva = st.text_input("Clave para esa persona", type="password", key="alta_clave")
+        if nuevo:
+            st.caption("Pega esto en Secrets y guarda:")
+            st.code(bloque_alta(nuevo, clave_nueva), language="toml")
+            st.caption("La clave queda cifrada: no se puede leer desde el archivo.")
+
     if st.sidebar.button("Cerrar sesion", **ancho()):
         for clave in ("authenticated", "user_email"):
             st.session_state.pop(clave, None)
@@ -1028,8 +1017,7 @@ def selector_filtro(data: dict, shop_key: str) -> dict:
         mensaje = str(exc)
         if "read_products" in mensaje or "403" in mensaje or "access denied" in mensaje.lower():
             aviso(
-                "A la app le falta el permiso <code>read_products</code> para leer el catalogo. "
-                "Agregalo en los scopes y reinstala la app en la tienda.",
+                "No puedo leer el catalogo de esta tienda: falta un permiso en la app de Shopify.",
                 "error",
             )
         else:
@@ -1073,7 +1061,6 @@ def selector_filtro(data: dict, shop_key: str) -> dict:
         aviso("Elige al menos un criterio para acotar el alcance.")
         return seleccion
 
-    st.caption("Consulta que se ejecutara en cada tienda: " + consulta)
     try:
         productos = cargar_por_filtro(shop_key, consulta)
     except Exception as exc:
@@ -1119,8 +1106,7 @@ def selector_catalogo(data: dict, shop_key: str) -> dict:
             mensaje = str(exc)
             if "read_products" in mensaje or "403" in mensaje or "access denied" in mensaje.lower():
                 aviso(
-                    "A la app le falta el permiso <code>read_products</code> para leer colecciones. "
-                    "Agregalo en los scopes y reinstala la app en la tienda.",
+                    "No puedo leer las colecciones de esta tienda: falta un permiso en la app de Shopify.",
                     "error",
                 )
             else:
@@ -1140,7 +1126,6 @@ def selector_catalogo(data: dict, shop_key: str) -> dict:
         if seleccion["collectionHandles"]:
             chips = "".join('<span class="pill">' + handle + "</span>" for handle in seleccion["collectionHandles"])
             st.markdown('<div class="coupon-chip-row">' + chips + "</div>", unsafe_allow_html=True)
-            st.caption("Se guarda el handle, no el ID: asi la misma seleccion sirve en las otras tiendas.")
         return seleccion
 
     if data["appliesTo"] == APLICA_FILTRO:
@@ -1162,8 +1147,7 @@ def selector_catalogo(data: dict, shop_key: str) -> dict:
             mensaje = str(exc)
             if "read_products" in mensaje or "403" in mensaje or "access denied" in mensaje.lower():
                 aviso(
-                    "A la app le falta el permiso <code>read_products</code> para leer productos. "
-                    "Agregalo en los scopes y reinstala la app en la tienda.",
+                    "No puedo leer los productos de esta tienda: falta un permiso en la app de Shopify.",
                     "error",
                 )
             else:
@@ -1177,12 +1161,12 @@ def selector_catalogo(data: dict, shop_key: str) -> dict:
                     if variante["sku"]
                 ]
             )
-            st.caption("Copia los SKU que necesites al cuadro de arriba.")
+            st.caption("Copia los codigos que necesites al cuadro de arriba.")
             st.dataframe(tabla, hide_index=True, **ancho())
 
     seleccion["productSkus"] = skus
     if skus:
-        st.caption(str(len(skus)) + " SKU(s) seleccionados. Se resuelven en cada tienda al crear el cupon.")
+        st.caption(str(len(skus)) + " producto(s) seleccionados.")
     return seleccion
 
 
@@ -1297,56 +1281,46 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
         ]
     )
 
-    seccion("2", "Descuento", "Que codigo se entrega y cuanto descuenta.")
-    izq, der = st.columns(2)
-    with izq:
+    seccion("2", "El cupon", "Codigo que escribe el cliente y cuanto descuenta.")
+    codigo_col, valor_col, tipo_col = st.columns([1.4, 1, 1.1])
+    with codigo_col:
         data["codigoCupon"] = st.text_input("Codigo del cupon", value=data["codigoCupon"], key="stable_codigo")
-        data["tipoDescuento"] = st.selectbox(
-            "Tipo de descuento",
-            ["Porcentaje", "Monto fijo"],
-            index=["Porcentaje", "Monto fijo"].index(data.get("tipoDescuento", "Porcentaje")),
-            key="stable_tipo",
-        )
-    with der:
-        data["nombreInterno"] = st.text_input("Nombre interno", value=data["nombreInterno"], key="stable_nombre")
+    with valor_col:
         data["valorDescuento"] = st.number_input(
-            "Valor del descuento",
+            "Descuento",
             min_value=0.0,
             value=float(data["valorDescuento"]),
             step=1.0,
             key="stable_valor",
         )
+    with tipo_col:
+        data["tipoDescuento"] = st.selectbox(
+            "Tipo",
+            ["Porcentaje", "Monto fijo"],
+            index=["Porcentaje", "Monto fijo"].index(data.get("tipoDescuento", "Porcentaje")),
+            key="stable_tipo",
+        )
 
-    base_col, mensaje_col = st.columns(2)
-    with base_col:
-        data["priceBasis"] = st.selectbox(
-            "Base de calculo",
-            [PRICE_BASIS_CURRENT, PRICE_BASIS_COMPARE_AT_BEST_WINS],
-            format_func=lambda value: "Price actual" if value == PRICE_BASIS_CURRENT else "Compare At Price - Best Wins",
-            index=[PRICE_BASIS_CURRENT, PRICE_BASIS_COMPARE_AT_BEST_WINS].index(
-                data.get("priceBasis", PRICE_BASIS_CURRENT)
-            ),
-            key="stable_price_basis",
-        )
+    data["priceBasis"] = st.radio(
+        "El descuento se calcula",
+        [PRICE_BASIS_CURRENT, PRICE_BASIS_COMPARE_AT_BEST_WINS],
+        format_func=lambda value: (
+            "Sobre el precio actual"
+            if value == PRICE_BASIS_CURRENT
+            else "Sobre el precio de lista (respeta la oferta vigente)"
+        ),
+        index=[PRICE_BASIS_CURRENT, PRICE_BASIS_COMPARE_AT_BEST_WINS].index(
+            data.get("priceBasis", PRICE_BASIS_CURRENT)
+        ),
+        horizontal=True,
+        key="stable_price_basis",
+    )
     if data["priceBasis"] == PRICE_BASIS_COMPARE_AT_BEST_WINS:
-        with mensaje_col:
-            data["missingCompareAtBehavior"] = "use_current_price"
-            data["functionMessage"] = st.text_input(
-                "Mensaje del descuento",
-                value=data.get("functionMessage", "Se aplico el mejor precio disponible"),
-                key="stable_function_message",
-            )
+        data["missingCompareAtBehavior"] = "use_current_price"
         aviso(
-            "El cupon se calcula desde el precio original. Si el producto ya tiene una promocion mejor, "
-            "se conserva el precio mas bajo. Sin Compare At Price se usa el Variant Price."
+            "El descuento se calcula desde el precio de lista. Si el producto ya tiene una oferta mejor, "
+            "el cliente se queda con esa y no se suman los dos descuentos."
         )
-        if float(data.get("compraMinima") or 0) > 0:
-            aviso(
-                "Con Best Wins la compra minima no la valida Shopify: viaja en el metafield "
-                "(<code>minimum_subtotal</code>) y la tiene que evaluar la Function. Confirma con quien "
-                "la desplego antes de lanzar un cupon de banco con minimo.",
-                "error",
-            )
 
     st.write("")
     if mode == "Individual":
@@ -1440,12 +1414,6 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
         ),
         key="stable_aplica",
     )
-    if data["appliesTo"] != APLICA_TODOS and data.get("priceBasis") == PRICE_BASIS_COMPARE_AT_BEST_WINS:
-        aviso(
-            "Con <b>Best Wins</b> la app traduce el alcance a IDs de producto y los manda en el metafield "
-            "(<code>product_ids</code>). La Function tiene que filtrar por esa lista: si todavia no lo hace, "
-            "el cupon va a descontar en todo el carrito. Ver seccion B.9 del brief para TI."
-        )
 
     if data["appliesTo"] != APLICA_TODOS:
         if not tienda_catalogo or not shopify_is_configured(tienda_catalogo):
@@ -1462,9 +1430,9 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
     bloque_vigencia(data)
 
     st.write("")
-    seccion("6", "Restricciones", "Todo lo de este bloque es opcional. Cero significa sin limite.")
-    izq, der = st.columns(2)
-    with izq:
+    seccion("6", "Condiciones", "Opcional. Dejalo en cero si no aplica.")
+    minimo_col, uso_col = st.columns([1, 1.3])
+    with minimo_col:
         data["compraMinima"] = st.number_input(
             "Compra minima (S/)",
             min_value=0.0,
@@ -1472,42 +1440,51 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
             step=10.0,
             key="stable_minimo",
         )
-        data["limiteTotalUsos"] = st.number_input(
-            "Limite total de usos",
-            min_value=0,
-            value=int(data["limiteTotalUsos"] or 0),
-            step=1,
-            help="0 = sin limite.",
-            key="stable_limite",
-        )
-    with der:
-        data["descuentoMaximo"] = st.number_input(
-            "Descuento maximo (S/)",
-            min_value=0.0,
-            value=float(data.get("descuentoMaximo") or 0),
-            step=10.0,
-            help="0 = sin tope.",
-            key="stable_tope",
-        )
+    with uso_col:
+        st.write("")
         data["unaVezPorCliente"] = st.checkbox(
             "Un solo uso por cliente", value=bool(data["unaVezPorCliente"]), key="stable_once"
         )
 
-    st.markdown('<div class="rango-tag">Combina con otros descuentos de Shopify</div>', unsafe_allow_html=True)
-    comb_cols = st.columns(3)
-    with comb_cols[0]:
-        data["combinaProducto"] = st.toggle("Producto", value=bool(data.get("combinaProducto")), key="stable_comb_prod")
-    with comb_cols[1]:
-        data["combinaPedido"] = st.toggle("Pedido", value=bool(data.get("combinaPedido")), key="stable_comb_order")
-    with comb_cols[2]:
-        data["combinaEnvio"] = st.toggle("Envio", value=bool(data.get("combinaEnvio")), key="stable_comb_ship")
+    with st.expander("Opciones avanzadas"):
+        avanzado_izq, avanzado_der = st.columns(2)
+        with avanzado_izq:
+            data["nombreInterno"] = st.text_input(
+                "Nombre interno",
+                value=data["nombreInterno"],
+                help="Como se ve en el panel de Shopify. Si lo dejas vacio se usa el codigo.",
+                key="stable_nombre",
+            )
+            data["descuentoMaximo"] = st.number_input(
+                "Tope maximo de descuento (S/)",
+                min_value=0.0,
+                value=float(data.get("descuentoMaximo") or 0),
+                step=10.0,
+                key="stable_tope",
+            )
+        with avanzado_der:
+            data["limiteTotalUsos"] = st.number_input(
+                "Limite total de usos",
+                min_value=0,
+                value=int(data["limiteTotalUsos"] or 0),
+                step=1,
+                key="stable_limite",
+            )
+            if data["priceBasis"] == PRICE_BASIS_COMPARE_AT_BEST_WINS:
+                data["functionMessage"] = st.text_input(
+                    "Mensaje en el carrito",
+                    value=data.get("functionMessage", "Se aplico el mejor precio disponible"),
+                    key="stable_function_message",
+                )
 
-    if data.get("priceBasis") == PRICE_BASIS_COMPARE_AT_BEST_WINS and float(data.get("compraMinima") or 0) > 0:
-        aviso(
-            "Con Best Wins la compra minima no la valida Shopify: viaja en el metafield "
-            "(<code>minimum_subtotal</code>) y la tiene que evaluar la Function.",
-            "error",
-        )
+        st.markdown('<div class="rango-tag">Se puede combinar con</div>', unsafe_allow_html=True)
+        comb_cols = st.columns(3)
+        with comb_cols[0]:
+            data["combinaProducto"] = st.toggle("Ofertas de producto", value=bool(data.get("combinaProducto")), key="stable_comb_prod")
+        with comb_cols[1]:
+            data["combinaPedido"] = st.toggle("Descuentos de pedido", value=bool(data.get("combinaPedido")), key="stable_comb_order")
+        with comb_cols[2]:
+            data["combinaEnvio"] = st.toggle("Envio gratis", value=bool(data.get("combinaEnvio")), key="stable_comb_ship")
 
     st.write("")
     if mode == "Individual":
@@ -1552,11 +1529,8 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
         aviso("Selecciona al menos una tienda y completa el codigo para ver la vista previa.")
 
     if data.get("priceBasis") == PRICE_BASIS_COMPARE_AT_BEST_WINS:
-        with st.expander("Simulacion Best Wins por producto", expanded=False):
-            st.caption(
-                "Compara el Compare At Price contra el Price actual. Nunca sube un precio ni descuenta de mas "
-                "cuando la promocion vigente ya es mejor."
-            )
+        with st.expander("Como queda el precio", expanded=False):
+            st.caption("Ejemplos de como queda el precio final segun el caso.")
             st.dataframe(pd.DataFrame(build_preview_rows(data)), hide_index=True, **ancho())
 
     for alert in data.get("parserAlerts", []):
@@ -1639,7 +1613,7 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
-    with st.expander("Secrets necesarios para Shopify"):
+    with st.expander("Configuracion tecnica de la tienda"):
         secret_example = (
             "[shopify_sites." + shop_key + "]\n"
             'shop_domain = "' + shop_key + '.myshopify.com"\n'
@@ -1649,7 +1623,7 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
             'compare_at_best_wins_function_handle = "compare-at-best-wins"'
         )
         st.code(secret_example, language="toml")
-        st.caption("Compare At Price - Best Wins necesita la Discount Function desplegada y permiso write_discounts.")
+        st.caption("Solo hace falta si la tienda todavia no esta conectada.")
 
 
 if module == "Generar cupones":
