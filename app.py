@@ -49,6 +49,7 @@ from ui_kit import (
     inject_css,
     panel,
     seccion,
+    ticket,
 )
 
 
@@ -1170,6 +1171,16 @@ def selector_catalogo(data: dict, shop_key: str) -> dict:
     return seleccion
 
 
+def vigencia_texto(clave_fecha: str, clave_hora: str, data: dict, campo_fecha: str, campo_hora: str) -> str:
+    """Fecha y hora para el ticket, leidas del widget para que no vayan un paso atras."""
+    fecha = st.session_state.get(clave_fecha) or a_fecha(data.get(campo_fecha))
+    hora = st.session_state.get(clave_hora) or a_hora(data.get(campo_hora))
+    try:
+        return fecha.strftime("%d/%m") + " " + hora.strftime("%H:%M")
+    except Exception:
+        return str(data.get(campo_fecha, "")) + " " + str(data.get(campo_hora, ""))
+
+
 def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
     shop_key = selected_site["shop_key"]
     if "coupon_data" not in st.session_state:
@@ -1195,12 +1206,13 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
             st.session_state["coupon_results"] = []
             aplicar_plantilla("")
 
-    mode = st.radio(
+    mode = st.segmented_control(
         "Metodo de creacion",
         ["Individual", "Masivo"],
-        horizontal=True,
+        default=st.session_state.get("coupon_creation_mode_stable", "Individual"),
         key="coupon_creation_mode_stable",
-    )
+        label_visibility="collapsed",
+    ) or "Individual"
     st.session_state["coupon_data"]["creationMode"] = mode
 
     seccion("1", "Describe la promocion", "Escribe la instruccion y la app completa los campos. Despues puedes editar todo.")
@@ -1281,45 +1293,89 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
         ]
     )
 
-    seccion("2", "El cupon", "Codigo que escribe el cliente y cuanto descuenta.")
-    codigo_col, valor_col, tipo_col = st.columns([1.4, 1, 1.1])
-    with codigo_col:
-        data["codigoCupon"] = st.text_input("Codigo del cupon", value=data["codigoCupon"], key="stable_codigo")
-    with valor_col:
-        data["valorDescuento"] = st.number_input(
-            "Descuento",
-            min_value=0.0,
-            value=float(data["valorDescuento"]),
-            step=1.0,
-            key="stable_valor",
-        )
-    with tipo_col:
-        data["tipoDescuento"] = st.selectbox(
-            "Tipo",
-            ["Porcentaje", "Monto fijo"],
-            index=["Porcentaje", "Monto fijo"].index(data.get("tipoDescuento", "Porcentaje")),
-            key="stable_tipo",
-        )
+    seccion("2", "El cupon", "Como se llama la campana, que codigo escribe el cliente y cuanto descuenta.")
+    campos_col, ticket_col = st.columns([1.55, 1], gap="large")
 
-    data["priceBasis"] = st.radio(
-        "El descuento se calcula",
-        [PRICE_BASIS_CURRENT, PRICE_BASIS_COMPARE_AT_BEST_WINS],
-        format_func=lambda value: (
-            "Sobre el precio actual"
-            if value == PRICE_BASIS_CURRENT
-            else "Sobre el precio de lista (respeta la oferta vigente)"
-        ),
-        index=[PRICE_BASIS_CURRENT, PRICE_BASIS_COMPARE_AT_BEST_WINS].index(
-            data.get("priceBasis", PRICE_BASIS_CURRENT)
-        ),
-        horizontal=True,
-        key="stable_price_basis",
-    )
-    if data["priceBasis"] == PRICE_BASIS_COMPARE_AT_BEST_WINS:
-        data["missingCompareAtBehavior"] = "use_current_price"
-        aviso(
-            "El descuento se calcula desde el precio de lista. Si el producto ya tiene una oferta mejor, "
-            "el cliente se queda con esa y no se suman los dos descuentos."
+    with campos_col:
+        data["nombreInterno"] = st.text_input(
+            "Nombre de la campana",
+            value=data["nombreInterno"],
+            placeholder="Cyber Vans agosto",
+            help="Solo para identificarla en el panel de Shopify. El cliente no lo ve.",
+            key="stable_nombre",
+        )
+        codigo_col, valor_col, tipo_col = st.columns([1.5, 1, 1.1])
+        with codigo_col:
+            data["codigoCupon"] = st.text_input(
+                "Codigo que escribe el cliente",
+                value=data["codigoCupon"],
+                placeholder="CYBER40",
+                key="stable_codigo",
+            )
+        with valor_col:
+            data["valorDescuento"] = st.number_input(
+                "Descuento",
+                min_value=0.0,
+                value=float(data["valorDescuento"]),
+                step=1.0,
+                key="stable_valor",
+            )
+        with tipo_col:
+            data["tipoDescuento"] = st.selectbox(
+                "Tipo",
+                ["Porcentaje", "Monto fijo"],
+                index=["Porcentaje", "Monto fijo"].index(data.get("tipoDescuento", "Porcentaje")),
+                key="stable_tipo",
+            )
+
+        st.markdown('<div class="panel-secundario-tag">El descuento se calcula</div>', unsafe_allow_html=True)
+        BASES = {
+            PRICE_BASIS_CURRENT: "Sobre el precio actual",
+            PRICE_BASIS_COMPARE_AT_BEST_WINS: "Sobre el precio de lista",
+        }
+        elegida = st.segmented_control(
+            "Base de calculo",
+            list(BASES),
+            format_func=lambda value: BASES[value],
+            default=data.get("priceBasis", PRICE_BASIS_CURRENT),
+            key="stable_price_basis",
+            label_visibility="collapsed",
+        )
+        data["priceBasis"] = elegida or data.get("priceBasis", PRICE_BASIS_CURRENT)
+        if data["priceBasis"] == PRICE_BASIS_COMPARE_AT_BEST_WINS:
+            data["missingCompareAtBehavior"] = "use_current_price"
+            st.markdown(
+                '<div class="ayuda-seleccion">El descuento sale del precio de lista. Si el producto ya '
+                "tiene una oferta mejor, el cliente se queda con esa: nunca se suman los dos.</div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div class="ayuda-seleccion">El descuento sale del precio que el producto tiene hoy, '
+                "aunque ya este rebajado.</div>",
+                unsafe_allow_html=True,
+            )
+
+    with ticket_col:
+        etiqueta_valor = (
+            f"{data['valorDescuento']:.0f}%"
+            if data["tipoDescuento"] == "Porcentaje"
+            else f"S/ {data['valorDescuento']:.0f}"
+        )
+        tiendas_ticket = [
+            site_cfg["name"] for site_cfg in enabled_sites if site_cfg["id"] in data.get("selectedSites", [])
+        ]
+        ticket(
+            data["codigoCupon"].strip().upper(),
+            etiqueta_valor,
+            "de descuento" if data["tipoDescuento"] == "Porcentaje" else "de rebaja",
+            data["nombreInterno"].strip(),
+            [
+                ("Tienda", tiendas_ticket[0] if len(tiendas_ticket) == 1 else (str(len(tiendas_ticket)) + " tiendas" if tiendas_ticket else "Sin elegir")),
+                ("Aplica a", data.get("appliesTo", APLICA_TODOS)),
+                ("Desde", vigencia_texto("vigencia_fecha_inicio", "vigencia_hora_inicio", data, "fechaInicio", "horaInicio")),
+                ("Hasta", vigencia_texto("vigencia_fecha_fin", "vigencia_hora_fin", data, "fechaFin", "horaFin")),
+            ],
         )
 
     st.write("")
@@ -1405,15 +1461,21 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
 
     st.write("")
     seccion("4", "Alcance", "A que productos aplica el cupon. Por defecto, a todo el catalogo.")
-    opciones_alcance = [APLICA_TODOS, APLICA_COLECCIONES, APLICA_FILTRO, APLICA_PRODUCTOS]
-    data["appliesTo"] = st.selectbox(
+    ALCANCES = {
+        APLICA_TODOS: "Todo el catalogo",
+        APLICA_COLECCIONES: "Colecciones",
+        APLICA_FILTRO: "Marca o tipo",
+        APLICA_PRODUCTOS: "Productos puntuales",
+    }
+    alcance_elegido = st.segmented_control(
         "Aplicabilidad",
-        opciones_alcance,
-        index=opciones_alcance.index(
-            data.get("appliesTo") if data.get("appliesTo") in opciones_alcance else APLICA_TODOS
-        ),
+        list(ALCANCES),
+        format_func=lambda value: ALCANCES[value],
+        default=data.get("appliesTo") if data.get("appliesTo") in ALCANCES else APLICA_TODOS,
         key="stable_aplica",
+        label_visibility="collapsed",
     )
+    data["appliesTo"] = alcance_elegido or APLICA_TODOS
 
     if data["appliesTo"] != APLICA_TODOS:
         if not tienda_catalogo or not shopify_is_configured(tienda_catalogo):
@@ -1446,15 +1508,10 @@ def render_coupon_builder_stable(site_name: str, selected_site: dict) -> None:
             "Un solo uso por cliente", value=bool(data["unaVezPorCliente"]), key="stable_once"
         )
 
-    with st.expander("Opciones avanzadas"):
+    st.markdown('<div class="panel-secundario-tag">Ajustes adicionales</div>', unsafe_allow_html=True)
+    with st.container(border=True):
         avanzado_izq, avanzado_der = st.columns(2)
         with avanzado_izq:
-            data["nombreInterno"] = st.text_input(
-                "Nombre interno",
-                value=data["nombreInterno"],
-                help="Como se ve en el panel de Shopify. Si lo dejas vacio se usa el codigo.",
-                key="stable_nombre",
-            )
             data["descuentoMaximo"] = st.number_input(
                 "Tope maximo de descuento (S/)",
                 min_value=0.0,

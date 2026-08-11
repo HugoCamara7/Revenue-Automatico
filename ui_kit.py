@@ -606,9 +606,125 @@ div[data-testid="stFileUploaderFile"] { font-size: 13px; }
   font-size: 12.5px; color: var(--ambar); line-height: 1.55;
 }
 
+/* ---------- Selectores tipo etiqueta ---------- */
+
+div[data-testid="stSegmentedControl"] { margin-bottom: 4px; }
+div[data-testid="stSegmentedControl"] > div {
+  gap: 8px !important;
+  background: transparent !important;
+  border: 0 !important;
+}
+div[data-testid="stSegmentedControl"] button {
+  border: 1.5px solid var(--linea-fuerte) !important;
+  background: var(--superficie) !important;
+  color: var(--texto-suave) !important;
+  border-radius: 999px !important;
+  padding: 9px 20px !important;
+  font-size: 13.5px !important;
+  font-weight: 650 !important;
+  box-shadow: none !important;
+  transition: all .15s ease;
+}
+div[data-testid="stSegmentedControl"] button:hover {
+  border-color: var(--azul) !important;
+  color: var(--azul) !important;
+}
+div[data-testid="stSegmentedControl"] button[aria-checked="true"],
+div[data-testid="stSegmentedControl"] button[aria-pressed="true"],
+div[data-testid="stSegmentedControl"] button[aria-selected="true"] {
+  background: var(--azul) !important;
+  border-color: var(--azul) !important;
+  color: #fff !important;
+  box-shadow: 0 5px 16px rgba(30, 94, 255, .28) !important;
+}
+div[data-testid="stSegmentedControl"] button[aria-checked="true"] p,
+div[data-testid="stSegmentedControl"] button[aria-pressed="true"] p,
+div[data-testid="stSegmentedControl"] button[aria-selected="true"] p { color: #fff !important; }
+
+.ayuda-seleccion {
+  font-size: 12.5px;
+  color: var(--texto-suave);
+  background: var(--superficie-2);
+  border-left: 3px solid var(--azul);
+  border-radius: 0 var(--radio-xs) var(--radio-xs) 0;
+  padding: 9px 13px;
+  margin: 6px 0 4px;
+}
+
+/* ---------- Ticket del cupon (vista en vivo) ---------- */
+
+.ticket {
+  position: relative;
+  background: linear-gradient(150deg, var(--azul) 0%, #3f2bd6 100%);
+  border-radius: var(--radio-lg);
+  padding: 24px 22px 20px;
+  color: #fff;
+  box-shadow: 0 14px 34px rgba(30, 94, 255, .30);
+  overflow: hidden;
+}
+.ticket::before,
+.ticket::after {
+  content: "";
+  position: absolute;
+  width: 26px; height: 26px;
+  background: var(--fondo);
+  border-radius: 50%;
+  left: -13px;
+}
+.ticket::after { left: auto; right: -13px; }
+.ticket::before, .ticket::after { top: 122px; }
+
+.ticket-pct {
+  font-size: 46px; font-weight: 800; line-height: 1;
+  letter-spacing: -.03em; color: #fff;
+}
+.ticket-tipo {
+  font-size: 12px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: rgba(255, 255, 255, .72); margin-top: 4px;
+}
+.ticket-codigo {
+  margin-top: 16px;
+  background: rgba(255, 255, 255, .16);
+  border: 1.5px dashed rgba(255, 255, 255, .45);
+  border-radius: var(--radio-sm);
+  padding: 11px 14px;
+  text-align: center;
+  font-size: 19px; font-weight: 800; letter-spacing: .12em; color: #fff;
+}
+.ticket-perfora {
+  border-top: 2px dashed rgba(255, 255, 255, .3);
+  margin: 18px -22px 14px;
+}
+.ticket-dato {
+  display: flex; justify-content: space-between; gap: 10px;
+  font-size: 12.5px; line-height: 1.9;
+}
+.ticket-dato span:first-child { color: rgba(255, 255, 255, .66); }
+.ticket-dato span:last-child { color: #fff; font-weight: 650; text-align: right; }
+.ticket-nombre {
+  font-size: 13px; font-weight: 700; color: rgba(255, 255, 255, .9);
+  margin-bottom: 2px;
+}
+
+/* ---------- Panel de ajustes secundarios (visible, no desplegable) ---------- */
+
+.panel-secundario {
+  background: var(--superficie-2);
+  border: 1px dashed var(--linea-fuerte);
+  border-radius: var(--radio);
+  padding: 4px 18px 2px;
+  margin-bottom: 14px;
+}
+.panel-secundario-tag {
+  font-size: 11px; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--texto-tenue);
+  padding: 14px 0 2px;
+}
+
 /* ---------- Responsive ---------- */
 
 @media (max-width: 900px) {
+  .ticket::before, .ticket::after { display: none; }
   .block-container { padding: 16px 14px 60px !important; }
   .steps-grid, .source-grid, .result-grid, .coupon-summary-grid, .coupon-kpi-grid {
     grid-template-columns: 1fr;
@@ -754,6 +870,31 @@ def estado_uploader(archivo, pendiente: str = "Sin archivo seleccionado") -> Non
         peso = ""
     st.markdown(
         '<div class="upload-estado ok">Cargado: ' + str(archivo.name) + peso + "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def ticket(
+    codigo: str,
+    valor: str,
+    tipo: str,
+    nombre: str,
+    datos: list[tuple[str, str]],
+) -> None:
+    """El cupon dibujado como cupon, actualizado mientras se arma."""
+    filas = "".join(
+        '<div class="ticket-dato"><span>' + etiqueta + "</span><span>" + str(valor_dato) + "</span></div>"
+        for etiqueta, valor_dato in datos
+    )
+    st.markdown(
+        '<div class="ticket">'
+        '<div class="ticket-pct">' + valor + "</div>"
+        '<div class="ticket-tipo">' + tipo + "</div>"
+        '<div class="ticket-codigo">' + (codigo or "SIN CODIGO") + "</div>"
+        '<div class="ticket-perfora"></div>'
+        + ('<div class="ticket-nombre">' + nombre + "</div>" if nombre else "")
+        + filas
+        + "</div>",
         unsafe_allow_html=True,
     )
 
