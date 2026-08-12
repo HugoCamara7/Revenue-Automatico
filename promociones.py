@@ -36,7 +36,21 @@ SIN_CAMBIO_SIN_REGLA = "Sin cambio: la fila no tiene ninguna regla"
 NO_ENCONTRADO = "No encontrado en la tienda"
 ERROR_DATO = "Dato invalido"
 
-COLUMNAS_ID = ("id", "sku", "variant sku", "codigo", "id producto", "product id", "variant id")
+COLUMNAS_ID = (
+    "cod mod col",
+    "modcol",
+    "modelo color",
+    "id",
+    "sku",
+    "variant sku",
+    "codigo",
+    "id producto",
+    "product id",
+    "variant id",
+)
+
+MODO_SKU = "SKU exacto"
+MODO_MODCOL = "COD MOD COL (todas las tallas)"
 COLUMNAS_PORCENTAJE = ("descuento", "porcentaje", "%", "off", "dcto", "descuento %")
 COLUMNAS_OBJETIVO = ("precio objetivo", "precio final", "precio", "todo a", "target")
 COLUMNAS_TOPE = ("tope", "tope maximo", "precio maximo", "maximo")
@@ -176,41 +190,53 @@ def calcular_precio(precio_actual, compare_at, regla: dict) -> dict:
     }
 
 
-def armar_plan(reglas: list[dict], variantes_por_clave: dict[str, dict]) -> list[dict]:
-    """Cruza las reglas del archivo con las variantes reales de la tienda."""
+def armar_plan(reglas: list[dict], variantes_por_clave: dict) -> list[dict]:
+    """Cruza las reglas del archivo con las variantes reales de la tienda.
+
+    Cada clave puede traer una variante (carga por SKU) o varias (carga por COD MOD
+    COL, donde una fila del archivo afecta a todas las tallas del producto). Cada
+    talla se calcula por separado, porque puede tener su propio precio.
+    """
     plan = []
     for regla in reglas:
         clave = regla["identificador"].strip().upper()
-        variante = variantes_por_clave.get(clave)
-        if not variante:
+        encontradas = variantes_por_clave.get(clave)
+        if isinstance(encontradas, dict):
+            encontradas = [encontradas]
+        if not encontradas:
             plan.append(
                 {
                     "Identificador": regla["identificador"],
                     "Producto": "",
+                    "Talla": "",
                     "Estado": NO_ENCONTRADO,
                 }
             )
             continue
 
-        resultado = calcular_precio(variante.get("price"), variante.get("compare_at"), regla)
-        fila = {
-            "Identificador": regla["identificador"],
-            "Producto": variante.get("nombre", ""),
-            "Precio actual": float(resultado.get("precio_actual") or 0),
-            "Compare At actual": float(dinero(variante.get("compare_at")) or 0),
-            "Estado": resultado["estado"],
-        }
-        if resultado["estado"] == APLICA:
-            fila.update(
-                {
-                    "Precio nuevo": float(resultado["precio_nuevo"]),
-                    "Compare At nuevo": float(resultado["compare_at_nuevo"]),
-                    "Ahorro": float(resultado["ahorro"]),
-                    "Descuento real %": float(resultado["descuento_real"]),
-                    "_variant_id": variante.get("id", ""),
-                }
-            )
-        plan.append(fila)
+        for variante in encontradas:
+            resultado = calcular_precio(variante.get("price"), variante.get("compare_at"), regla)
+            fila = {
+                "Identificador": regla["identificador"],
+                "Producto": variante.get("nombre", ""),
+                "Talla": variante.get("talla", ""),
+                "SKU": variante.get("sku", ""),
+                "Precio actual": float(resultado.get("precio_actual") or 0),
+                "Compare At actual": float(dinero(variante.get("compare_at")) or 0),
+                "Estado": resultado["estado"],
+            }
+            if resultado["estado"] == APLICA:
+                fila.update(
+                    {
+                        "Precio nuevo": float(resultado["precio_nuevo"]),
+                        "Compare At nuevo": float(resultado["compare_at_nuevo"]),
+                        "Ahorro": float(resultado["ahorro"]),
+                        "Descuento real %": float(resultado["descuento_real"]),
+                        "_variant_id": variante.get("id", ""),
+                        "_product_id": variante.get("product_id", ""),
+                    }
+                )
+            plan.append(fila)
     return plan
 
 
@@ -252,3 +278,214 @@ def agrupar_por_producto(filas: list[dict]) -> dict[str, list[dict]]:
         producto = fila.get("_product_id", "")
         grupos.setdefault(producto, []).append(fila)
     return grupos
+
+
+# ---------------------------------------------------------------------------
+# Carga por COD MOD COL
+#
+# El comercial trabaja en modelo-color, no en tallas. Una fila del archivo tiene que
+# afectar a todas las tallas de ese producto.
+#
+# Para encontrar el producto se prueban dos caminos, en orden:
+#   1. Por SKU: las tallas suelen compartir el prefijo del modelo-color.
+#   2. Por handle: en estas tiendas el handle del producto termina con el modelo-color
+#      (es lo que ya asume el modulo de Matrixify para cruzar).
+#
+# Una vez ubicado el producto se toman TODAS sus variantes, sin importar por cual de
+# los dos caminos se llego.
+# ---------------------------------------------------------------------------
+
+
+def clave_modcol(valor: str) -> str:
+    """Normaliza un modelo-color para comparar: sin espacios ni guiones, en mayuscula."""
+    return "".join(caracter for caracter in str(valor or "").upper() if caracter.isalnum())
+
+
+def variantes_de_producto(producto: dict) -> list[dict]:
+    """Aplana un producto de Shopify en la lista de sus variantes."""
+    salida = []
+    for nodo in ((producto.get("variants") or {}).get("nodes") or []):
+        salida.append(
+            {
+                "id": nodo.get("id", ""),
+                "sku": str(nodo.get("sku") or "").strip(),
+                "talla": nodo.get("title", ""),
+                "nombre": producto.get("title", ""),
+                "price": nodo.get("price"),
+                "compare_at": nodo.get("compareAtPrice"),
+                "product_id": producto.get("id", ""),
+            }
+        )
+    return salida
+
+
+def agrupar_por_modcol(productos: list[dict], modcols: list[str]) -> tuple[dict[str, list[dict]], list[str]]:
+    """Asocia cada modelo-color con todas las variantes de su producto.
+
+    Devuelve (grupos, no_encontrados). La comparacion ignora espacios y guiones, para
+    que "ABC123 001" y "ABC123-001" se traten igual.
+    """
+    grupos: dict[str, list[dict]] = {}
+    for modcol in modcols:
+        buscado = clave_modcol(modcol)
+        if not buscado:
+            continue
+        for producto in productos:
+            handle = clave_modcol(producto.get("handle", ""))
+            variantes = variantes_de_producto(producto)
+            coincide_handle = buscado in handle
+            coincide_sku = any(clave_modcol(v["sku"]).startswith(buscado) for v in variantes if v["sku"])
+            if coincide_handle or coincide_sku:
+                grupos.setdefault(modcol.strip().upper(), []).extend(variantes)
+                break
+
+    no_encontrados = [m for m in modcols if m.strip().upper() not in grupos]
+    return grupos, no_encontrados
+
+
+# ---------------------------------------------------------------------------
+# Regla puesta en la interfaz
+#
+# El archivo puede traer solo la lista de identificadores. En ese caso la regla se
+# configura una sola vez en pantalla y aplica a todas las filas. Si el archivo trae
+# sus propias columnas, esas mandan: sirve para campanas con porcentajes distintos.
+# ---------------------------------------------------------------------------
+
+
+def regla_general(porcentaje=None, precio_objetivo=None, tope_maximo=None, piso_minimo=None) -> dict:
+    return {
+        "porcentaje": dinero(porcentaje),
+        "precio_objetivo": dinero(precio_objetivo),
+        "tope_maximo": dinero(tope_maximo),
+        "piso_minimo": dinero(piso_minimo),
+    }
+
+
+def tiene_regla(regla: dict) -> bool:
+    return any(
+        regla.get(campo) is not None
+        for campo in ("porcentaje", "precio_objetivo", "tope_maximo", "piso_minimo")
+    )
+
+
+def combinar_reglas(reglas: list[dict], general: dict) -> list[dict]:
+    """Completa cada fila con la regla de pantalla. Lo del archivo tiene prioridad."""
+    combinadas = []
+    for regla in reglas:
+        fusionada = dict(regla)
+        if not tiene_regla(regla):
+            fusionada.update({campo: general.get(campo) for campo in general})
+        else:
+            for campo, valor in general.items():
+                if fusionada.get(campo) is None and valor is not None:
+                    fusionada[campo] = valor
+        combinadas.append(fusionada)
+    return combinadas
+
+
+def solo_identificadores(tabla) -> list[dict]:
+    """Lee un archivo que trae unicamente la columna de identificadores."""
+    columna = detectar_columna(tabla.columns, COLUMNAS_ID)
+    if not columna:
+        return []
+    vistos = set()
+    reglas = []
+    for valor in tabla[columna].tolist():
+        identificador = str(valor).strip()
+        if not identificador or identificador.lower() == "nan":
+            continue
+        if identificador.upper() in vistos:
+            continue
+        vistos.add(identificador.upper())
+        reglas.append(
+            {
+                "identificador": identificador,
+                "porcentaje": None,
+                "precio_objetivo": None,
+                "tope_maximo": None,
+                "piso_minimo": None,
+            }
+        )
+    return reglas
+
+
+# ---------------------------------------------------------------------------
+# Descuento automatico programado (sin tocar el catalogo)
+#
+# Reusa la misma Function de los cupones: mismo metafield, mismo filtro por
+# `product_ids`. La diferencia es que no lleva codigo y que Shopify lo activa y lo
+# apaga solo en las fechas indicadas.
+#
+# Limitacion a tener presente: la Function hoy entiende porcentaje. Precio objetivo,
+# tope y piso solo funcionan en el modo que cambia precios.
+# ---------------------------------------------------------------------------
+
+METAFIELD_NAMESPACE_FUNCTION = "$app:compare-at-best-wins"
+METAFIELD_KEY_FUNCTION = "function-configuration"
+
+
+def configuracion_automatico(porcentaje, product_ids: list[str], mensaje: str = "") -> dict:
+    return {
+        "percentage": float(porcentaje or 0),
+        "price_basis": "compare_at_price",
+        "strategy": "best_wins",
+        "missing_compare_at_behavior": "use_current_price",
+        "applies_to": "products" if product_ids else "all_products",
+        "product_ids": list(product_ids),
+        "variant_ids": [],
+        "collection_ids": [],
+        "minimum_subtotal": None,
+        "message": mensaje or "Precio promocional aplicado",
+    }
+
+
+def payload_descuento_automatico(
+    titulo: str,
+    porcentaje,
+    product_ids: list[str],
+    inicio: str,
+    fin: str,
+    function_handle: str,
+    mensaje: str = "",
+    combina_producto: bool = False,
+) -> dict:
+    """Arma DiscountAutomaticAppInput para `discountAutomaticAppCreate`."""
+    import json as _json
+
+    if not function_handle:
+        raise ValueError("Falta el handle de la Function.")
+    payload = {
+        "title": titulo,
+        "functionHandle": function_handle,
+        "startsAt": inicio,
+        "combinesWith": {
+            "productDiscounts": bool(combina_producto),
+            "orderDiscounts": False,
+            "shippingDiscounts": False,
+        },
+        "metafields": [
+            {
+                "namespace": METAFIELD_NAMESPACE_FUNCTION,
+                "key": METAFIELD_KEY_FUNCTION,
+                "type": "json",
+                "value": _json.dumps(
+                    configuracion_automatico(porcentaje, product_ids, mensaje),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+            }
+        ],
+    }
+    if fin:
+        payload["endsAt"] = fin
+    return payload
+
+
+def productos_unicos(plan: list[dict]) -> list[str]:
+    """IDs de producto distintos que toca el plan, para el descuento automatico."""
+    vistos = []
+    for fila in plan:
+        producto = fila.get("_product_id", "")
+        if producto and producto not in vistos:
+            vistos.append(producto)
+    return vistos
