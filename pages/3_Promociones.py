@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import io
 import json
+from datetime import date, time
 import sys
 from pathlib import Path
 from urllib import request
@@ -26,11 +27,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from coupon_config import COUPON_SHOPIFY_SITES  # noqa: E402
 from promociones import (  # noqa: E402
     APLICA,
+    MODO_MODCOL,
+    MODO_SKU,
+    agrupar_por_modcol,
     armar_plan,
+    combinar_reglas,
     leer_reglas,
     payload_actualizacion,
+    payload_descuento_automatico,
     payload_reversion,
+    productos_unicos,
+    regla_general,
     resumen_plan,
+    solo_identificadores,
+    tiene_regla,
 )
 from ui_kit import (  # noqa: E402
     ancho,
@@ -57,6 +67,36 @@ query VariantesPorSku($first: Int!, $query: String!) {
       compareAtPrice
       product { id title }
     }
+  }
+}
+"""
+
+QUERY_PRODUCTOS = """
+query ProductosPorModcol($first: Int!, $query: String!) {
+  products(first: $first, query: $query) {
+    nodes {
+      id
+      title
+      handle
+      variants(first: 100) {
+        nodes {
+          id
+          sku
+          title
+          price
+          compareAtPrice
+        }
+      }
+    }
+  }
+}
+"""
+
+MUTACION_AUTOMATICO = """
+mutation CrearDescuentoAutomatico($automaticAppDiscount: DiscountAutomaticAppInput!) {
+  discountAutomaticAppCreate(automaticAppDiscount: $automaticAppDiscount) {
+    automaticAppDiscount { discountId title status startsAt endsAt }
+    userErrors { field message }
   }
 }
 """
@@ -160,6 +200,28 @@ def buscar_variantes(graphql, identificadores: list[str]) -> dict[str, dict]:
     return encontradas
 
 
+def buscar_por_modcol(graphql, modcols: list[str]) -> tuple[dict[str, list[dict]], list[str]]:
+    """Busca el producto de cada modelo-color y devuelve TODAS sus tallas."""
+    grupos: dict[str, list[dict]] = {}
+    faltantes: list[str] = []
+    lotes = [modcols[i:i + 10] for i in range(0, len(modcols), 10)]
+    barra = st.progress(0.0, text="Buscando productos por modelo-color...")
+    for indice, lote in enumerate(lotes):
+        barra.progress((indice + 1) / max(len(lotes), 1), text="Lote " + str(indice + 1) + " de " + str(len(lotes)))
+        consulta = " OR ".join("sku:" + m + "* OR handle:*" + m + "*" for m in lote)
+        try:
+            datos = graphql(QUERY_PRODUCTOS, {"first": 250, "query": consulta})
+        except Exception as exc:
+            barra.empty()
+            raise exc
+        productos = ((datos or {}).get("products") or {}).get("nodes") or []
+        encontrados, sin_encontrar = agrupar_por_modcol(productos, lote)
+        grupos.update(encontrados)
+        faltantes.extend(sin_encontrar)
+    barra.empty()
+    return grupos, faltantes
+
+
 def excel_bytes(tabla: pd.DataFrame, hoja: str = "Plan") -> bytes:
     memoria = io.BytesIO()
     with pd.ExcelWriter(memoria, engine="openpyxl") as escritor:
@@ -244,7 +306,7 @@ def main() -> None:
         st.stop()
 
     # ---------------------------------------------------------------- paso 1
-    seccion("1", "Tienda y archivo", "Una columna con el SKU y al menos una columna de regla.")
+    seccion("1", "Tienda y archivo", "Alcanza con una columna de COD MOD COL o SKU. Las reglas van en el paso 2.")
     tienda_col, archivo_col = st.columns([1, 2])
     with tienda_col:
         nombres = {sitio["name"]: sitio["shop_key"] for sitio in sitios}
@@ -253,11 +315,32 @@ def main() -> None:
     with archivo_col:
         archivo = st.file_uploader("Archivo de promocion", type=["xlsx", "xlsm", "csv"], key="promo_archivo")
 
+    st.markdown('<div class="panel-secundario-tag">Que trae la primera columna</div>', unsafe_allow_html=True)
+    modo = st.segmented_control(
+        "Tipo de identificador",
+        [MODO_MODCOL, MODO_SKU],
+        default=st.session_state.get("promo_modo", MODO_MODCOL),
+        key="promo_modo",
+        label_visibility="collapsed",
+    ) or MODO_MODCOL
+    if modo == MODO_MODCOL:
+        st.markdown(
+            '<div class="ayuda-seleccion">Una fila por modelo-color. La promocion se aplica a '
+            "<b>todas las tallas</b> de ese producto, cada una calculada con su propio precio.</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div class="ayuda-seleccion">Una fila por SKU. Solo se toca esa talla; las demas quedan '
+            "al precio que tenian.</div>",
+            unsafe_allow_html=True,
+        )
+
     with st.expander("Que columnas puede tener el archivo"):
         st.dataframe(
             pd.DataFrame(
                 [
-                    {"Columna": "SKU o ID", "Obligatoria": "Si", "Ejemplo": "ABC123-001"},
+                    {"Columna": "COD MOD COL o SKU", "Obligatoria": "Si", "Ejemplo": "ABC123-001"},
                     {"Columna": "Descuento %", "Obligatoria": "No", "Ejemplo": "40"},
                     {"Columna": "Precio objetivo", "Obligatoria": "No", "Ejemplo": "199"},
                     {"Columna": "Tope maximo", "Obligatoria": "No", "Ejemplo": "299"},
@@ -283,18 +366,76 @@ def main() -> None:
         st.stop()
 
     reglas, avisos_lectura = leer_reglas(tabla)
+    if not reglas:
+        # El archivo puede traer solo la lista de identificadores: la regla va en pantalla.
+        reglas = solo_identificadores(tabla)
+        if reglas:
+            avisos_lectura = []
     for mensaje in avisos_lectura[:5]:
         aviso(mensaje, "error" if not reglas else "info")
     if not reglas:
         st.stop()
 
+    st.write("")
+    con_regla_propia = sum(1 for regla in reglas if tiene_regla(regla))
+    detalle_regla = (
+        "El archivo no trae reglas: se usa la de aca para las " + str(len(reglas)) + " filas."
+        if con_regla_propia == 0
+        else str(con_regla_propia) + " fila(s) traen su propia regla en el archivo y esas mandan."
+    )
+    seccion("2", "Que descuento les aplico", detalle_regla)
+
+    TIPO_PORCENTAJE = "Porcentaje"
+    TIPO_OBJETIVO = "Precio fijo (todo a)"
+    tipo_regla = st.segmented_control(
+        "Tipo de regla",
+        [TIPO_PORCENTAJE, TIPO_OBJETIVO],
+        default=st.session_state.get("promo_tipo_regla", TIPO_PORCENTAJE),
+        key="promo_tipo_regla",
+        label_visibility="collapsed",
+    ) or TIPO_PORCENTAJE
+
+    valor_col, tope_col, piso_col = st.columns(3)
+    with valor_col:
+        if tipo_regla == TIPO_PORCENTAJE:
+            porcentaje = st.number_input("Descuento %", min_value=0.0, max_value=100.0, value=30.0, step=5.0)
+            objetivo = None
+        else:
+            objetivo = st.number_input("Todos a S/", min_value=0.0, value=199.0, step=10.0)
+            porcentaje = None
+    with tope_col:
+        tope = st.number_input("Tope maximo S/ (0 = sin tope)", min_value=0.0, value=0.0, step=10.0)
+    with piso_col:
+        piso = st.number_input("Piso minimo S/ (0 = sin piso)", min_value=0.0, value=0.0, step=10.0)
+
+    general = regla_general(
+        porcentaje=porcentaje,
+        precio_objetivo=objetivo,
+        tope_maximo=tope if tope > 0 else None,
+        piso_minimo=piso if piso > 0 else None,
+    )
+    reglas = combinar_reglas(reglas, general)
+
     # ---------------------------------------------------------------- paso 2
     st.write("")
-    seccion("2", "Plan de cambios", str(len(reglas)) + " fila(s) en el archivo. Nada se aplica todavia.")
+    detalle_plan = str(len(reglas)) + " fila(s) en el archivo. Nada se aplica todavia."
+    if modo == MODO_MODCOL:
+        detalle_plan += " Cada modelo-color se expande a todas sus tallas."
+    seccion("3", "Plan de cambios", detalle_plan)
 
     if st.button("Calcular plan", type="primary", icon=":material/calculate:"):
+        identificadores = [regla["identificador"] for regla in reglas]
+        graphql = crear_graphql(obtener_config(shop_key))
         try:
-            variantes = buscar_variantes(crear_graphql(obtener_config(shop_key)), [r["identificador"] for r in reglas])
+            if modo == MODO_MODCOL:
+                encontrados, faltantes = buscar_por_modcol(graphql, identificadores)
+                if faltantes:
+                    aviso(
+                        str(len(faltantes)) + " modelo-color sin producto en esta tienda: "
+                        + ", ".join(faltantes[:6]) + ("..." if len(faltantes) > 6 else "")
+                    )
+            else:
+                encontrados = buscar_variantes(graphql, identificadores)
         except Exception as exc:
             mensaje = str(exc)
             if "read_products" in mensaje or "403" in mensaje:
@@ -302,11 +443,13 @@ def main() -> None:
             else:
                 aviso("No pude leer el catalogo: " + mensaje[:200], "error")
             st.stop()
-        plan = armar_plan(reglas, variantes)
-        for fila in plan:
-            clave = str(fila["Identificador"]).strip().upper()
-            if clave in variantes:
-                fila["_product_id"] = variantes[clave].get("product_id", "")
+
+        plan = armar_plan(reglas, encontrados)
+        if modo == MODO_SKU:
+            for fila in plan:
+                clave = str(fila["Identificador"]).strip().upper()
+                if clave in encontrados:
+                    fila["_product_id"] = encontrados[clave].get("product_id", "")
         st.session_state["promo_plan"] = plan
         st.session_state["promo_tienda"] = nombre_tienda
 
@@ -352,33 +495,118 @@ def main() -> None:
         st.stop()
 
     st.write("")
-    seccion(
-        "3",
-        "Aplicar en la tienda",
-        "Esto escribe el precio en " + nombre_tienda + " y se ve en la web al instante.",
+    seccion("4", "Como quiero que se vea", "Esta eleccion decide que hace la app por debajo.")
+    con_badge = st.toggle(
+        "Mostrar el precio tachado y el badge de oferta en la web",
+        value=st.session_state.get("promo_badge", True),
+        key="promo_badge",
     )
-    aviso(
-        "Descarga el plan antes de aplicar: es el archivo que permite revertir la campana, "
-        "porque guarda el precio de lista de cada variante."
+    if con_badge:
+        st.markdown(
+            '<div class="ayuda-seleccion">Se escribe el precio en el catalogo: el cliente ve el precio '
+            "tachado en la ficha y en los listados. Se aplica cuando toques el boton; para revertir usas "
+            "el plan descargado.</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div class="ayuda-seleccion">Se crea un <b>descuento automatico programado</b>: no toca el '
+            "catalogo, Shopify lo activa y lo apaga solo en las fechas que pongas. El cliente ve el "
+            "descuento en el carrito, pero <b>no hay precio tachado ni badge</b>.</div>",
+            unsafe_allow_html=True,
+        )
+
+    st.write("")
+    if con_badge:
+        seccion("5", "Aplicar precios", "Escribe el precio en " + nombre_tienda + " y se ve en la web al instante.")
+        aviso(
+            "Descarga el plan antes de aplicar: es el archivo que permite revertir la campana, "
+            "porque guarda el precio de lista de cada variante."
+        )
+        confirmado = st.checkbox(
+            "Confirmo cambiar el precio de " + str(len(aplicables)) + " variante(s) en " + nombre_tienda,
+            key="promo_confirmar",
+        )
+        accion_col, revertir_col = st.columns(2)
+        if accion_col.button("Aplicar precios", type="primary", disabled=not confirmado, **ancho()):
+            correctas, errores = aplicar_cambios(crear_graphql(obtener_config(shop_key)), aplicables)
+            if errores:
+                aviso(str(len(errores)) + " error(es): " + " | ".join(errores[:3]), "error")
+            if correctas:
+                st.success(str(correctas) + " variante(s) actualizadas en " + nombre_tienda + ".")
+                st.balloons()
+        if revertir_col.button("Revertir a precio de lista", disabled=not confirmado, **ancho()):
+            correctas, errores = aplicar_cambios(crear_graphql(obtener_config(shop_key)), aplicables, revertir=True)
+            if errores:
+                aviso(str(len(errores)) + " error(es): " + " | ".join(errores[:3]), "error")
+            if correctas:
+                st.success(str(correctas) + " variante(s) volvieron al precio de lista.")
+        return
+
+    # ---------------------------------------------------------------- automatico
+    seccion("5", "Programar el descuento", "Shopify lo enciende y lo apaga solo. No hay que estar presente.")
+    config_tienda = obtener_config(shop_key)
+    handle = str(config_tienda.get("compare_at_best_wins_function_handle", "")).strip()
+    if not handle:
+        aviso(
+            "Falta <code>compare_at_best_wins_function_handle</code> en Secrets para esta tienda. "
+            "Sin eso no puedo crear el descuento automatico.",
+            "error",
+        )
+        st.stop()
+
+    porcentaje_automatico = general.get("porcentaje")
+    if porcentaje_automatico is None:
+        aviso(
+            "El descuento automatico hoy solo entiende <b>porcentaje</b>. Precio fijo, tope y piso "
+            "funcionan en el modo que cambia precios. Para usarlos aca hay que agregarle esa regla a la Function.",
+            "error",
+        )
+        st.stop()
+
+    nombre_campana = st.text_input("Nombre de la promocion", value="Promocion " + nombre_tienda)
+    inicio_dia, inicio_hora, fin_dia, fin_hora = st.columns(4)
+    fecha_inicio = inicio_dia.date_input("Dia de inicio", value=date.today(), format="DD/MM/YYYY")
+    hora_inicio = inicio_hora.time_input("Hora de inicio", value=time(0, 0), step=300)
+    fecha_fin = fin_dia.date_input("Dia de fin", value=date.today(), format="DD/MM/YYYY", min_value=fecha_inicio)
+    hora_fin = fin_hora.time_input("Hora de fin", value=time(23, 59), step=300)
+
+    productos = productos_unicos(aplicables)
+    st.markdown(
+        '<div class="ayuda-seleccion">Alcance: <b>' + str(len(productos)) + " producto(s)</b> "
+        "(" + str(len(aplicables)) + " variantes). Del " + fecha_inicio.strftime("%d/%m")
+        + " " + hora_inicio.strftime("%H:%M") + " al " + fecha_fin.strftime("%d/%m")
+        + " " + hora_fin.strftime("%H:%M") + ".</div>",
+        unsafe_allow_html=True,
     )
+
     confirmado = st.checkbox(
-        "Confirmo cambiar el precio de " + str(len(aplicables)) + " variante(s) en " + nombre_tienda,
-        key="promo_confirmar",
+        "Confirmo programar el descuento en " + nombre_tienda, key="promo_confirmar_auto"
     )
-    accion_col, revertir_col = st.columns(2)
-    if accion_col.button("Aplicar precios", type="primary", disabled=not confirmado, **ancho()):
-        correctas, errores = aplicar_cambios(crear_graphql(obtener_config(shop_key)), aplicables)
+    if st.button("Programar descuento", type="primary", disabled=not confirmado, icon=":material/schedule:"):
+        payload = payload_descuento_automatico(
+            nombre_campana.strip() or ("Promocion " + nombre_tienda),
+            float(porcentaje_automatico),
+            productos,
+            fecha_inicio.isoformat() + "T" + hora_inicio.strftime("%H:%M") + ":00-05:00",
+            fecha_fin.isoformat() + "T" + hora_fin.strftime("%H:%M") + ":00-05:00",
+            handle,
+        )
+        try:
+            datos = crear_graphql(config_tienda)(MUTACION_AUTOMATICO, {"automaticAppDiscount": payload})
+        except Exception as exc:
+            aviso("Shopify rechazo el descuento: " + str(exc)[:250], "error")
+            st.stop()
+        resultado = (datos or {}).get("discountAutomaticAppCreate") or {}
+        errores = resultado.get("userErrors") or []
         if errores:
-            aviso(str(len(errores)) + " error(es): " + " | ".join(errores[:3]), "error")
-        if correctas:
-            st.success(str(correctas) + " variante(s) actualizadas en " + nombre_tienda + ".")
+            aviso("; ".join(str(error.get("message", "")) for error in errores), "error")
+        else:
+            creado = resultado.get("automaticAppDiscount") or {}
+            st.success(
+                "Descuento programado: " + str(creado.get("title", "")) + " (" + str(creado.get("status", "")) + ")"
+            )
             st.balloons()
-    if revertir_col.button("Revertir a precio de lista", disabled=not confirmado, **ancho()):
-        correctas, errores = aplicar_cambios(crear_graphql(obtener_config(shop_key)), aplicables, revertir=True)
-        if errores:
-            aviso(str(len(errores)) + " error(es): " + " | ".join(errores[:3]), "error")
-        if correctas:
-            st.success(str(correctas) + " variante(s) volvieron al precio de lista.")
 
 
 main()
