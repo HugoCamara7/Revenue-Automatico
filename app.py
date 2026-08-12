@@ -813,6 +813,11 @@ with st.sidebar:
             st.switch_page("pages/2_Auditoria_de_cupones.py")
         except Exception:
             st.warning("Falta la pagina de auditoria en pages/.")
+    if st.button("Promociones", icon=":material/price_change:", key="nav_promos", **ancho()):
+        try:
+            st.switch_page("pages/3_Promociones.py")
+        except Exception:
+            st.warning("Falta la pagina de promociones en pages/.")
 
 module = next(
     nombre for clave_modulo, _etiqueta, _icono, nombre in MODULOS
